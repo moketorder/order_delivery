@@ -639,8 +639,8 @@
         let currentMonth = "";
         let currentDay = "";
         
-        let activeApartment = ""; // 선택된 아파트
-        let activeDong = ""; // 선택된 동
+        let activeApartment = localStorage.getItem('moket_rider_active_apartment') || "전체"; // 선택된 아파트
+        let activeDong = localStorage.getItem('moket_rider_active_dong') || "전체"; // 선택된 동
         let activeStatusFilter = localStorage.getItem('moket_rider_status_filter') || "all"; // 배달 상태 필터 (all, pending, completed)
 
         let activeUploadPhone = ""; // 사진 업로드 타겟 주문
@@ -999,8 +999,6 @@
                 document.querySelectorAll('#date-tabs .date-tab-btn').forEach(b => b.classList.remove('active'));
                 allDayBtn.classList.add('active');
                 
-                activeApartment = "";
-                activeDong = "전체";
                 renderFilteredData();
             };
             dateContainer.appendChild(allDayBtn);
@@ -1015,8 +1013,6 @@
                     document.querySelectorAll('#date-tabs .date-tab-btn').forEach(b => b.classList.remove('active'));
                     btn.classList.add('active');
                     
-                    activeApartment = "";
-                    activeDong = "전체";
                     renderFilteredData();
                 };
                 dateContainer.appendChild(btn);
@@ -1127,6 +1123,8 @@
             allAptBtn.onclick = () => {
                 activeApartment = "전체";
                 activeDong = "전체";
+                localStorage.setItem('moket_rider_active_apartment', "전체");
+                localStorage.setItem('moket_rider_active_dong', "전체");
                 document.querySelectorAll('.apt-btn').forEach(b => b.classList.remove('active'));
                 allAptBtn.classList.add('active');
                 
@@ -1142,6 +1140,8 @@
                 btn.onclick = () => {
                     activeApartment = apt;
                     activeDong = "전체"; // 아파트 변경 시 동을 "전체"로 설정
+                    localStorage.setItem('moket_rider_active_apartment', apt);
+                    localStorage.setItem('moket_rider_active_dong', "전체");
                     document.querySelectorAll('.apt-btn').forEach(b => b.classList.remove('active'));
                     btn.classList.add('active');
                     renderDongButtons(aptGroups[apt]);
@@ -1198,6 +1198,7 @@
             allBtn.innerText = `전체 (${getUniqueCustomerCount(aptOrders)})`;
             allBtn.onclick = () => {
                 activeDong = "전체";
+                localStorage.setItem('moket_rider_active_dong', "전체");
                 document.querySelectorAll('.dong-btn').forEach(b => b.classList.remove('active'));
                 allBtn.classList.add('active');
                 renderOrderCards(aptOrders);
@@ -1210,6 +1211,7 @@
                 btn.innerText = `${dong} (${getUniqueCustomerCount(dongGroups[dong])})`;
                 btn.onclick = () => {
                     activeDong = dong;
+                    localStorage.setItem('moket_rider_active_dong', dong);
                     document.querySelectorAll('.dong-btn').forEach(b => b.classList.remove('active'));
                     btn.classList.add('active');
                     renderOrderCards(dongGroups[dong]);
@@ -1453,7 +1455,11 @@
                         <a href="tel:${cleanPhone}" class="btn-action btn-call">📞 전화</a>
                         <a href="sms:${cleanPhone}" class="btn-action btn-sms">💬 문자</a>
                         <button class="btn-action btn-photo" onclick="triggerCameraUpload('${customer.phone}', '${orderKeysStr}', '${customer.name}')">📸 사진업로드</button>
-                        <button class="btn-action btn-complete" onclick="markAsDelivered('${customer.phone}', '${orderKeysStr}', '${customer.name}')">🚚 배달완료</button>
+                        ${customer.status === "배달완료" ? `
+                            <button class="btn-action" style="background:#e2e8f0; color:#475569; border:1px solid #cbd5e1;" onclick="revertDelivered('${customer.phone}', '${orderKeysStr}', '${customer.name}')">↩️ 배달취소</button>
+                        ` : `
+                            <button class="btn-action btn-complete" onclick="markAsDelivered('${customer.phone}', '${orderKeysStr}', '${customer.name}')">🚚 배달완료</button>
+                        `}
                     </div>
                 `;
                 listContainer.appendChild(card);
@@ -1529,6 +1535,43 @@
                     window.location.href = smsUrl;
                 }, 800);
 
+                await loadData();
+            } catch (e) {
+                console.error(e);
+                showToast("오류가 발생했습니다.");
+            } finally {
+                hideLoader();
+            }
+        }
+
+        // 배달 완료 취소 처리 (실수 방지 및 복구용)
+        async function revertDelivered(phone, orderKeysStr, customerName) {
+            if (!confirm(`${customerName}님의 배달 완료 처리를 취소하고 다시 배달 대기 상태로 복구하시겠습니까?`)) return;
+            showLoader("배달 취소 처리 중...");
+            const cleanPhone = String(phone).replace(/\D/g, "");
+            const orderKeys = orderKeysStr.split(",");
+            try {
+                const promises = [];
+                const patchBody = {
+                    status: "대기",
+                    delivered: false,
+                    deliveryPhoto: null,
+                    deliveryPhotoTime: null
+                };
+                
+                orderKeys.forEach(orderKey => {
+                    const url = `${FIREBASE_DB_URL}orders/${cleanPhone}/${orderKey}.json`;
+                    promises.push(
+                        fetch(url, {
+                            method: 'PATCH',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(patchBody)
+                        })
+                    );
+                });
+                
+                await Promise.all(promises);
+                showToast("배달 완료가 취소 및 복구되었습니다.");
                 await loadData();
             } catch (e) {
                 console.error(e);
