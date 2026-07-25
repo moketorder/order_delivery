@@ -222,7 +222,7 @@
             flex-shrink: 0;
         }
         .btn-select {
-            padding: 10px 14px;
+            padding: 8px 14px;
             border-radius: var(--radius-sub);
             font-size: 14px;
             font-weight: 800;
@@ -586,14 +586,12 @@
         </div>
 
         <!-- 아파트 선택 버튼 그룹 -->
-        <div class="section-title">🏢 아파트 단지 선택</div>
-        <div class="swipe-container" id="apartment-buttons">
+        <div class="swipe-container" id="apartment-buttons" style="margin-top: 10px;">
             <!-- 동적 로드 -->
         </div>
 
         <!-- 동 선택 버튼 그룹 -->
         <div id="dong-section" style="display: none;">
-            <div class="section-title">🚪 동 선택</div>
             <div class="swipe-container" id="dong-buttons">
                 <!-- 동적 로드 -->
             </div>
@@ -643,7 +641,7 @@
         
         let activeApartment = ""; // 선택된 아파트
         let activeDong = ""; // 선택된 동
-        let activeStatusFilter = "all"; // 배달 상태 필터 (all, pending, completed)
+        let activeStatusFilter = localStorage.getItem('moket_rider_status_filter') || "all"; // 배달 상태 필터 (all, pending, completed)
 
         let activeUploadPhone = ""; // 사진 업로드 타겟 주문
         let activeUploadKey = "";
@@ -893,6 +891,7 @@
 
         function handleStatusFilterChange(status) {
             activeStatusFilter = status;
+            localStorage.setItem('moket_rider_status_filter', status);
             document.querySelectorAll('.status-filter-btn').forEach(btn => {
                 btn.classList.toggle('active', btn.dataset.status === status);
             });
@@ -1659,8 +1658,14 @@
         }
 
         window.onload = function() {
+            // 로컬 스토리지에서 필터 복구 및 UI 반영
+            const savedFilter = localStorage.getItem('moket_rider_status_filter') || "all";
+            activeStatusFilter = savedFilter;
+            document.querySelectorAll('.status-filter-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.status === activeStatusFilter);
+            });
             loadData();
         };
     </script>
 </body>
-</html>s
+</html>
