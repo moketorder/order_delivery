@@ -1413,8 +1413,9 @@
                     </div>
                 `).join('');
 
-                // 묶음 주문의 모든 orderKey들을 쉼표로 연결하여 액션 파라미터로 넘김
-                const orderKeysStr = customer.orders.map(o => o.orderKey).join(',');
+                // 묶음 주문의 모든 {phone, orderKey} 정보를 JSON String으로 인코딩하여 넘김
+                const targetOrders = customer.orders.map(o => ({ phone: o.phone, orderKey: o.orderKey }));
+                const targetOrdersStr = encodeURIComponent(JSON.stringify(targetOrders));
 
                 // 고정 메모 및 주문별 메모 수집
                 const fixedDbKey = getFixedMemoDbKey(customer.name, customer.phone);
@@ -1466,11 +1467,11 @@
                     <div class="rider-card-footer no-print">
                         <a href="tel:${cleanPhone}" class="btn-action btn-call">📞 전화</a>
                         <a href="sms:${cleanPhone}" class="btn-action btn-sms">💬 문자</a>
-                        <button class="btn-action btn-photo" onclick="triggerCameraUpload('${customer.phone}', '${orderKeysStr}', '${customer.name}')">📸 사진업로드</button>
+                        <button class="btn-action btn-photo" onclick="triggerCameraUpload('${targetOrdersStr}', '${customer.name}', '${cleanPhone}')">📸 사진업로드</button>
                         ${customer.status === "배달완료" ? `
-                            <button class="btn-action btn-complete" style="background:#e2e8f0; color:#475569; border:1px solid #cbd5e1;" onclick="revertDelivered('${customer.phone}', '${orderKeysStr}', '${customer.name}')">↩️ 배달취소</button>
+                            <button class="btn-action btn-complete" style="background:#e2e8f0; color:#475569; border:1px solid #cbd5e1;" onclick="revertDelivered('${targetOrdersStr}', '${customer.name}')">↩️ 배달취소</button>
                         ` : `
-                            <button class="btn-action btn-complete" onclick="markAsDelivered('${customer.phone}', '${orderKeysStr}', '${customer.name}')">🚚 배달완료</button>
+                            <button class="btn-action btn-complete" onclick="markAsDelivered('${targetOrdersStr}', '${customer.name}', '${cleanPhone}')">🚚 배달완료</button>
                         `}
                     </div>
                 `;
@@ -1509,12 +1510,11 @@
         }
 
         // 단순 배달 완료 처리 (여러 주문 일괄 처리)
-        async function markAsDelivered(phone, orderKeysStr, customerName) {
+        async function markAsDelivered(targetOrdersStr, customerName, cleanPhone) {
             if (!confirm("배달 완료 처리하시겠습니까?")) return;
             showLoader("배달 완료 처리 중...");
-            const cleanPhone = String(phone).replace(/\D/g, "");
-            const orderKeys = orderKeysStr.split(",");
             try {
+                const orderTargets = JSON.parse(decodeURIComponent(targetOrdersStr));
                 const promises = [];
                 const patchBody = {
                     status: "배달완료",
@@ -1523,8 +1523,8 @@
                     delivered: true
                 };
                 
-                orderKeys.forEach(orderKey => {
-                    const url = `${FIREBASE_DB_URL}orders/${cleanPhone}/${orderKey}.json`;
+                orderTargets.forEach(target => {
+                    const url = `${FIREBASE_DB_URL}orders/${target.phone}/${target.orderKey}.json`;
                     promises.push(
                         fetch(url, {
                             method: 'PATCH',
@@ -1557,12 +1557,11 @@
         }
 
         // 배달 완료 취소 처리 (실수 방지 및 복구용)
-        async function revertDelivered(phone, orderKeysStr, customerName) {
+        async function revertDelivered(targetOrdersStr, customerName) {
             if (!confirm(`${customerName}님의 배달 완료 처리를 취소하고 다시 배달 대기 상태로 복구하시겠습니까?`)) return;
             showLoader("배달 취소 처리 중...");
-            const cleanPhone = String(phone).replace(/\D/g, "");
-            const orderKeys = orderKeysStr.split(",");
             try {
+                const orderTargets = JSON.parse(decodeURIComponent(targetOrdersStr));
                 const promises = [];
                 const patchBody = {
                     status: "대기",
@@ -1571,8 +1570,8 @@
                     deliveryPhotoTime: null
                 };
                 
-                orderKeys.forEach(orderKey => {
-                    const url = `${FIREBASE_DB_URL}orders/${cleanPhone}/${orderKey}.json`;
+                orderTargets.forEach(target => {
+                    const url = `${FIREBASE_DB_URL}orders/${target.phone}/${target.orderKey}.json`;
                     promises.push(
                         fetch(url, {
                             method: 'PATCH',
@@ -1594,11 +1593,11 @@
         }
 
         // 준비 사진 업로드 준비
-        let activeUploadKeys = [];
+        let activeUploadTargets = [];
         let activeUploadCustomerName = "";
-        function triggerCameraUpload(phone, orderKeysStr, customerName) {
+        function triggerCameraUpload(targetOrdersStr, customerName, phone) {
             activeUploadPhone = phone;
-            activeUploadKeys = orderKeysStr.split(",");
+            activeUploadTargets = JSON.parse(decodeURIComponent(targetOrdersStr));
             activeUploadCustomerName = customerName;
             document.getElementById('camera-input').click();
         }
@@ -1606,7 +1605,7 @@
         // 배달 완료 사진 업로드 처리 (여러 주문 일괄 처리)
         async function handleDeliveryPhotoUpload(event) {
             const file = event.target.files[0];
-            if (!file || !activeUploadPhone || !activeUploadKeys || activeUploadKeys.length === 0) return;
+            if (!file || !activeUploadPhone || !activeUploadTargets || activeUploadTargets.length === 0) return;
             showLoader("사진 압축 및 업로드 중...");
             try {
                 const compressedBase64 = await resizeAndCompressImage(file);
@@ -1622,8 +1621,8 @@
                 };
 
                 const promises = [];
-                activeUploadKeys.forEach(orderKey => {
-                    const url = `${FIREBASE_DB_URL}orders/${cleanPhone}/${orderKey}.json`;
+                activeUploadTargets.forEach(target => {
+                    const url = `${FIREBASE_DB_URL}orders/${target.phone}/${target.orderKey}.json`;
                     promises.push(
                         fetch(url, {
                             method: 'PATCH',
@@ -1644,7 +1643,7 @@
                 const smsUrl = `sms:${cleanPhone}${separator}body=${encodeURIComponent(messageText)}`;
                 
                 activeUploadPhone = "";
-                activeUploadKeys = [];
+                activeUploadTargets = [];
                 activeUploadCustomerName = "";
                 
                 setTimeout(() => {
