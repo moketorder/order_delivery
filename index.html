@@ -245,6 +245,12 @@
             color: #ffffff;
             box-shadow: 0 4px 10px rgba(255, 109, 0, 0.25);
         }
+        .btn-select.status-filter-btn.active {
+            background-color: var(--blue);
+            border-color: var(--blue);
+            color: #ffffff;
+            box-shadow: 0 4px 10px rgba(59, 130, 246, 0.25);
+        }
 
         /* 공동현관 비번 입력란 */
         .password-card {
@@ -593,6 +599,16 @@
             </div>
         </div>
 
+        <!-- 배달 상태 필터 토글 버튼 그룹 -->
+        <div id="status-filter-section" style="margin-bottom: 14px;">
+            <div class="section-title">🚚 배달 상태 필터</div>
+            <div class="selector-group" id="status-filter-buttons">
+                <button class="btn-select status-filter-btn active" data-status="all" onclick="handleStatusFilterChange('all')">전체</button>
+                <button class="btn-select status-filter-btn" data-status="pending" onclick="handleStatusFilterChange('pending')">미완료</button>
+                <button class="btn-select status-filter-btn" data-status="completed" onclick="handleStatusFilterChange('completed')">완료</button>
+            </div>
+        </div>
+
         <!-- 주문 목록 영역 -->
         <div class="rider-list-container" id="order-list">
             <div style="text-align:center; padding:50px; font-weight:800; color:var(--text-sub); font-size: 14px;">
@@ -618,6 +634,8 @@
 
         let rawOrders = [];
         let entrancePasswords = {}; // 공동현관 비밀번호 로컬 캐시
+        let customerMemos = {}; // 주문별 메모 로컬 캐시
+        let fixedMemos = {}; // 고객별 고정 메모 로컬 캐시
 
         let currentYear = "";
         let currentMonth = "";
@@ -625,6 +643,7 @@
         
         let activeApartment = ""; // 선택된 아파트
         let activeDong = ""; // 선택된 동
+        let activeStatusFilter = "all"; // 배달 상태 필터 (all, pending, completed)
 
         let activeUploadPhone = ""; // 사진 업로드 타겟 주문
         let activeUploadKey = "";
@@ -725,6 +744,20 @@
             return dongRaw || "기타";
         }
 
+        // 메모 데이터베이스 키 생성 헬퍼
+        function getMemoDbKey(name, phone, orderTime) {
+            const cleanPhone = String(phone || "").replace(/\D/g, "");
+            const baseKey = (!cleanPhone) ? ((name || "무명").trim() + "_비인증") : cleanPhone;
+            const memoKey = baseKey + "_" + (orderTime || "").replace(/\s+/g, "");
+            return memoKey.replace(/[\.\#\$\[\]\/]/g, "_").trim();
+        }
+
+        function getFixedMemoDbKey(name, phone) {
+            const cleanPhone = String(phone || "").replace(/\D/g, "");
+            const baseKey = (!cleanPhone) ? ((name || "무명").trim() + "_비인증") : cleanPhone;
+            return baseKey.replace(/[\.\#\$\[\]\/]/g, "_").trim();
+        }
+
         // 날짜/시간 비교를 위한 문자열 파싱 헬퍼
         function parseTimestampToDate(ts) {
             if (!ts) return new Date(0);
@@ -779,9 +812,11 @@
         async function loadData() {
             showLoader("데이터 로딩 중...");
             try {
-                const [response, pwdRes] = await Promise.all([
+                const [response, pwdRes, memoRes, fixedMemoRes] = await Promise.all([
                     fetch(`${FIREBASE_DB_URL}orders.json?t=${Date.now()}`),
-                    fetch(`${FIREBASE_DB_URL}entrance_passwords.json?t=${Date.now()}`).catch(e => null)
+                    fetch(`${FIREBASE_DB_URL}entrance_passwords.json?t=${Date.now()}`).catch(e => null),
+                    fetch(`${FIREBASE_DB_URL}customer_memos.json?t=${Date.now()}`).catch(e => null),
+                    fetch(`${FIREBASE_DB_URL}fixed_memos.json?t=${Date.now()}`).catch(e => null)
                 ]);
                 
                 if (!response.ok) throw new Error("Firebase 연결 실패");
@@ -791,6 +826,18 @@
                     entrancePasswords = await pwdRes.json() || {};
                 } else {
                     entrancePasswords = {};
+                }
+
+                if (memoRes && memoRes.ok) {
+                    customerMemos = await memoRes.json() || {};
+                } else {
+                    customerMemos = {};
+                }
+
+                if (fixedMemoRes && fixedMemoRes.ok) {
+                    fixedMemos = await fixedMemoRes.json() || {};
+                } else {
+                    fixedMemos = {};
                 }
 
                 rawOrders = [];
@@ -842,6 +889,14 @@
             currentDay = "전체";
             
             buildDateTabs();
+        }
+
+        function handleStatusFilterChange(status) {
+            activeStatusFilter = status;
+            document.querySelectorAll('.status-filter-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.status === status);
+            });
+            renderFilteredData();
         }
 
         // 날짜 탭 구축
@@ -971,15 +1026,10 @@
             renderFilteredData();
         }
 
-        // 필터링 및 아파트/동 구조 렌더링
-        function renderFilteredData() {
-            const search = document.getElementById('searchInput').value.toLowerCase().trim();
-            const clearBtn = document.getElementById('clearSearchBtn');
-            if (clearBtn) clearBtn.style.display = search !== "" ? "flex" : "none";
-
-            // 주문고객별 고유 건수 구하는 헬퍼 함수
-            const getUniqueCustomerCount = (ordersList) => {
-                const customerKeys = new Set();
+        // 주문고객별 고유 건수 구하는 헬퍼 함수
+        function getUniqueCustomerCount(ordersList) {
+            const customerKeys = new Set();
+            if (ordersList && Array.isArray(ordersList)) {
                 ordersList.forEach(item => {
                     const cleanPhone = String(item.phone || "").replace(/\D/g, "");
                     const customerKey = cleanPhone || String(item.name || "").trim();
@@ -987,8 +1037,15 @@
                         customerKeys.add(customerKey);
                     }
                 });
-                return customerKeys.size;
-            };
+            }
+            return customerKeys.size;
+        }
+
+        // 필터링 및 아파트/동 구조 렌더링
+        function renderFilteredData() {
+            const search = document.getElementById('searchInput').value.toLowerCase().trim();
+            const clearBtn = document.getElementById('clearSearchBtn');
+            if (clearBtn) clearBtn.style.display = search !== "" ? "flex" : "none";
 
             // 1단계: 선택 날짜 필터링
             let filtered = rawOrders.filter(item => {
@@ -1019,7 +1076,14 @@
                 });
             }
 
-            // 3단계: 아파트별 그룹화
+            // 3단계: 배달 상태 필터링 (all, pending, completed)
+            if (activeStatusFilter === "pending") {
+                filtered = filtered.filter(item => item.status !== "배달완료");
+            } else if (activeStatusFilter === "completed") {
+                filtered = filtered.filter(item => item.status === "배달완료");
+            }
+
+            // 4단계: 아파트별 그룹화
             const aptGroups = {};
             filtered.forEach(item => {
                 const aptName = extractApartmentName(item.address);
@@ -1339,6 +1403,19 @@
                 // 묶음 주문의 모든 orderKey들을 쉼표로 연결하여 액션 파라미터로 넘김
                 const orderKeysStr = customer.orders.map(o => o.orderKey).join(',');
 
+                // 고정 메모 및 주문별 메모 수집
+                const fixedDbKey = getFixedMemoDbKey(customer.name, customer.phone);
+                const fixedMemo = fixedMemos[fixedDbKey] || "";
+
+                const orderMemos = [];
+                customer.orders.forEach(o => {
+                    const memoDbKey = getMemoDbKey(o.name, o.phone, o.timestamp);
+                    const memo = customerMemos[memoDbKey] || "";
+                    if (memo && !orderMemos.includes(memo)) {
+                        orderMemos.push(memo);
+                    }
+                });
+
                 card.innerHTML = `
                     <div class="rider-card-header">
                         <span class="unit-number">${fullDongHo}</span>
@@ -1349,6 +1426,16 @@
                         ${customer.entrance ? `
                             <div class="address-box" style="background:#eff6ff; border:1px solid #bfdbfe; color:#1d4ed8;">
                                 🚪 공동현관 입력값: <b>${customer.entrance}</b>
+                            </div>
+                        ` : ''}
+                        ${fixedMemo ? `
+                            <div class="address-box" style="background:#fff7ed; border:1px solid #ffedd5; color:#c2410c; margin-top: 4px;">
+                                📌 고객 고정 메모: <b>${fixedMemo}</b>
+                            </div>
+                        ` : ''}
+                        ${orderMemos.length > 0 ? `
+                            <div class="address-box" style="background:#f0fdf4; border:1px solid #dcfce7; color:#15803d; margin-top: 4px;">
+                                📝 주문 요청 사항: <b>${orderMemos.join(', ')}</b>
                             </div>
                         ` : ''}
                         
@@ -1576,4 +1663,4 @@
         };
     </script>
 </body>
-</html>
+</html>s
