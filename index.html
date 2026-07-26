@@ -421,7 +421,7 @@
             background: #0284c7;
             color: #ffffff;
             border: none;
-            flex: 1.5;
+            flex: 2;
         }
         .btn-photo:hover {
             background: #0369a1;
@@ -436,8 +436,11 @@
         .photo-thumbnail-container {
             margin-top: 8px;
             display: flex;
-            flex-direction: column;
-            gap: 4px;
+            flex-direction: row;
+            align-items: center;
+            justify-content: flex-start;
+            gap: 8px;
+            width: 100%;
         }
         .photo-thumbnail {
             width: 70px;
@@ -913,6 +916,13 @@
                 return getNum(b) - getNum(a); // 최신 일이 먼저
             });
 
+            // 페이지 최초 로드 시 오늘 날짜를 기본 활성화 (오늘이 없으면 가장 최근 배달일 또는 전체)
+            const todayObj = new Date();
+            const todayDayStr = todayObj.getDate() + "일";
+            if (!currentDay) {
+                currentDay = sortedDays.includes(todayDayStr) ? todayDayStr : (sortedDays[0] || "전체");
+            }
+
             // "전체" 버튼 생성
             const allDayBtn = document.createElement('button');
             allDayBtn.className = `date-tab-btn ${currentDay === '전체' ? 'active' : ''}`;
@@ -1312,7 +1322,7 @@
                         </div>
 
                         ${(customer.deliveryPhotoExists || customer.deliveryPhoto) ? `
-                            <div class="photo-thumbnail-container" style="display:flex; align-items:center; gap:8px; margin-top:8px;">
+                            <div class="photo-thumbnail-container">
                                 <span style="font-size:11px; font-weight:800; color:var(--primary);">📸 배달 완료 사진:</span>
                                 ${customer.deliveryPhoto ? `
                                     <img src="${customer.deliveryPhoto}" class="photo-thumbnail" onclick="viewDeliveryPhoto('${customer.phone}_${customer.orders[0].orderKey}', '${customer.deliveryPhoto}')">
