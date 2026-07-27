@@ -203,7 +203,7 @@
             display: flex;
             flex-wrap: wrap;
             gap: 8px;
-            margin-bottom: 14px;
+            margin-bottom: 5px;
         }
         .swipe-container {
             display: flex;
@@ -212,7 +212,7 @@
             scrollbar-width: none;
             -webkit-overflow-scrolling: touch;
             gap: 8px;
-            margin-bottom: 14px;
+            margin-bottom: 5px;
             padding: 4px 2px;
         }
         .swipe-container::-webkit-scrollbar {
@@ -222,9 +222,9 @@
             flex-shrink: 0;
         }
         .btn-select {
-            padding: 10px 14px;
+            padding: 8px 12px;
             border-radius: var(--radius-sub);
-            font-size: 14px;
+            font-size: 12px;
             font-weight: 800;
             cursor: pointer;
             transition: var(--transition);
@@ -619,6 +619,7 @@
 
         let rawOrders = [];
         let entrancePasswords = {}; // 공동현관 비밀번호 로컬 캐시
+        let isInitialLoad = true;
 
         // 고객 카드 갯수(고유 전화번호 수) 계산 헬퍼 (전역)
         function getUniqueCustomerCount(ordersList) {
@@ -717,13 +718,14 @@
             return "";
         }
 
-        // 끝에 1동 만 포맷 헬퍼 (예: 101동 -> 1동)
+        // 끝에 동 포맷 헬퍼 (예: 101동 -> 1동, 111동 -> 11동, 12동 -> 12동)
         function formatDongName(dongRaw) {
             const match = String(dongRaw).match(/(\d+)/);
             if (match) {
                 const numStr = match[1];
-                const lastDigit = numStr.slice(-1);
-                return lastDigit + "동";
+                // 2자리 이하이면 그대로 표시, 3자리 이상이면 끝의 2자리만 파싱해 표시 (101동->1동, 111동->11동)
+                const parsedNum = numStr.length <= 2 ? parseInt(numStr) : parseInt(numStr.slice(-2));
+                return parsedNum + "동";
             }
             return dongRaw || "기타";
         }
@@ -778,9 +780,58 @@
             return { month: "기타", day: "기타", dateStr: "기타" };
         }
 
+        // 전역 캐시 로드 함수
+        function loadOrdersFromCache() {
+            const cached = localStorage.getItem('moket_orders_cache');
+            const cachedPasswords = localStorage.getItem('moket_entrance_passwords_cache');
+            
+            if (cached) {
+                try {
+                    const data = JSON.parse(cached);
+                    entrancePasswords = cachedPasswords ? JSON.parse(cachedPasswords) : {};
+                    
+                    rawOrders = [];
+                    for (const phone in data) {
+                        for (const orderKey in data[phone]) {
+                            const it = data[phone][orderKey];
+                            
+                            const isCanceled = (it.canceled === true || it.canceled === "true" || String(it.canceled).toUpperCase() === "TRUE");
+                            if (isCanceled) continue;
+                            const isDelivery = (it.shippingMethod === '배달주문' || (it.shippingMethod !== '매장픽업' && it.address && String(it.address).trim() !== ""));
+                            if (!isDelivery) continue;
+
+                            const isDelivered = (it.delivered === true || it.delivered === "true" || String(it.delivered).toUpperCase() === "TRUE");
+                            if (isDelivered && it.deliveryPhotoTime) {
+                                const photoAge = Date.now() - parseInt(it.deliveryPhotoTime);
+                                if (photoAge > 7 * 24 * 60 * 60 * 1000) {
+                                    continue;
+                                }
+                            }
+
+                            rawOrders.push(it);
+                        }
+                    }
+                    console.log("배달 주문 로컬 캐시 데이터 즉시 표시 완료");
+                    buildDateTabs();
+                    return true;
+                } catch (e) {
+                    console.error("캐시 파싱 실패:", e);
+                }
+            }
+            return false;
+        }
+
         // DB에서 데이터 로드
         async function loadData() {
-            showLoader("데이터 로딩 중...");
+            let hasCache = false;
+            if (isInitialLoad) {
+                hasCache = loadOrdersFromCache();
+                isInitialLoad = false;
+            }
+            if (!hasCache) {
+                showLoader("데이터 로딩 중...");
+            }
+            
             try {
                 const [response, pwdRes] = await Promise.all([
                     fetch(`${FIREBASE_DB_URL}orders.json?t=${Date.now()}`),
@@ -789,9 +840,13 @@
                 
                 if (!response.ok) throw new Error("Firebase 연결 실패");
                 const data = await response.json() || {};
+                
+                // 캐시 업데이트
+                localStorage.setItem('moket_orders_cache', JSON.stringify(data));
 
                 if (pwdRes && pwdRes.ok) {
                     entrancePasswords = await pwdRes.json() || {};
+                    localStorage.setItem('moket_entrance_passwords_cache', JSON.stringify(entrancePasswords));
                 } else {
                     entrancePasswords = {};
                 }
@@ -1423,7 +1478,7 @@
                     window.location.href = smsUrl;
                 }, 800);
 
-                await loadData();
+                await loadData(true);
             } catch (e) {
                 console.error(e);
                 showToast("오류가 발생했습니다.");
@@ -1456,7 +1511,8 @@
                     canceled: false,
                     isStocked: true,
                     delivered: true,
-                    deliveryPhoto: compressedBase64,
+                    deliveryPhoto: null,
+                    deliveryPhotoExists: true,
                     deliveryPhotoTime: Date.now()
                 };
 
@@ -1498,7 +1554,7 @@
                     window.location.href = smsUrl;
                 }, 800);
 
-                await loadData();
+                await loadData(true);
             } catch (e) {
                 console.error(e);
                 showToast("사진 업로드 실패");
