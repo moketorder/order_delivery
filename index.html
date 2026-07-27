@@ -642,7 +642,7 @@
                         const canvas = document.createElement('canvas');
                         let width = img.width;
                         let height = img.height;
-                        const max_width = 800;
+                        const max_width = 500;
                         if (width > max_width) {
                             height = Math.round((height * max_width) / width);
                             width = max_width;
@@ -651,7 +651,7 @@
                         canvas.height = height;
                         const ctx = canvas.getContext('2d');
                         ctx.drawImage(img, 0, 0, width, height);
-                        const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
+                        const dataUrl = canvas.toDataURL('image/jpeg', 0.5);
                         resolve(dataUrl);
                     };
                     img.onerror = reject;
@@ -964,6 +964,18 @@
             const clearBtn = document.getElementById('clearSearchBtn');
             if (clearBtn) clearBtn.style.display = search !== "" ? "flex" : "none";
 
+            // 고객 카드 갯수(고유 전화번호 수) 계산 헬퍼
+            const getUniqueCustomerCount = (ordersList) => {
+                const uniquePhones = new Set();
+                ordersList.forEach(item => {
+                    const cleanPhone = String(item.phone || "").replace(/\D/g, "");
+                    if (cleanPhone) {
+                        uniquePhones.add(cleanPhone);
+                    }
+                });
+                return uniquePhones.size;
+            };
+
             // 1단계: 선택 날짜 필터링
             let filtered = rawOrders.filter(item => {
                 const info = getOrderDateInfo(item);
@@ -1034,7 +1046,7 @@
             // "전체" 아파트 버튼 생성
             const allAptBtn = document.createElement('button');
             allAptBtn.className = `btn-select apt-btn ${activeApartment === '전체' ? 'active' : ''}`;
-            allAptBtn.innerText = `전체 (${filtered.length})`;
+            allAptBtn.innerText = `전체 (${getUniqueCustomerCount(filtered)})`;
             allAptBtn.onclick = () => {
                 activeApartment = "전체";
                 activeDong = "전체";
@@ -1049,7 +1061,7 @@
             apartments.forEach(apt => {
                 const btn = document.createElement('button');
                 btn.className = `btn-select apt-btn ${apt === activeApartment ? 'active' : ''}`;
-                btn.innerText = `${apt} (${aptGroups[apt].length})`;
+                btn.innerText = `${apt} (${getUniqueCustomerCount(aptGroups[apt])})`;
                 btn.onclick = () => {
                     activeApartment = apt;
                     activeDong = "전체"; // 아파트 변경 시 동을 "전체"로 설정
@@ -1106,7 +1118,7 @@
             // "전체" 버튼 생성
             const allBtn = document.createElement('button');
             allBtn.className = `btn-select dong-btn ${activeDong === '전체' ? 'active' : ''}`;
-            allBtn.innerText = `전체 (${aptOrders.length})`;
+            allBtn.innerText = `전체 (${getUniqueCustomerCount(aptOrders)})`;
             allBtn.onclick = () => {
                 activeDong = "전체";
                 document.querySelectorAll('.dong-btn').forEach(b => b.classList.remove('active'));
@@ -1118,7 +1130,7 @@
             dongs.forEach(dong => {
                 const btn = document.createElement('button');
                 btn.className = `btn-select dong-btn ${dong === activeDong ? 'active' : ''}`;
-                btn.innerText = `${dong} (${dongGroups[dong].length})`;
+                btn.innerText = `${dong} (${getUniqueCustomerCount(dongGroups[dong])})`;
                 btn.onclick = () => {
                     activeDong = dong;
                     document.querySelectorAll('.dong-btn').forEach(b => b.classList.remove('active'));
