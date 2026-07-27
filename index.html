@@ -1,21 +1,25 @@
 <!DOCTYPE html>
 <html lang="ko">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>MOKET 배달기사 전용</title>
     <!-- Pretendard Variable Font -->
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css" />
+    <link rel="stylesheet"
+        href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css" />
     <style>
         :root {
             --bg-color: #f1f5f9;
             --card-color: #ffffff;
             --text-main: #0f172a;
             --text-sub: #475569;
-            --primary: #10b981; /* Moket Green */
+            --primary: #10b981;
+            /* Moket Green */
             --primary-hover: #059669;
             --primary-light: #ecfdf5;
-            --secondary: #ff6d00; /* Nego Orange */
+            --secondary: #ff6d00;
+            /* Nego Orange */
             --secondary-hover: #e65c00;
             --secondary-light: #fff3e0;
             --blue: #3b82f6;
@@ -46,10 +50,11 @@
 
         /* 텍스트 입력 영역을 가리킬 때 마우스 포인터(I-beam) 가시성 개선 (검은색 텍스트 커서 적용) */
         @media (pointer: fine) {
-            input[type="text"], 
-            input[type="number"], 
-            input[type="search"], 
-            input[type="tel"], 
+
+            input[type="text"],
+            input[type="number"],
+            input[type="search"],
+            input[type="tel"],
             textarea {
                 cursor: url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNiIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDE2IDI0Ij48cGF0aCBzdHJva2U9IiMwMDAwMDAiIHN0cm9rZS13aWR0aD0iMS42IiBkPSJNNCwyIEwxMiwyIE04LDIgTDgsMjIgTTQsMjIgTDEyLDIyIi8+PC9zdmc+") 8 12, text !important;
             }
@@ -110,9 +115,11 @@
             scrollbar-width: none;
             -webkit-overflow-scrolling: touch;
         }
+
         .date-tabs-container::-webkit-scrollbar {
             display: none;
         }
+
         .select-dropdown {
             width: 100%;
             padding: 10px 14px;
@@ -123,12 +130,14 @@
             background: #ffffff;
             color: var(--text-main);
             outline: none;
-            box-shadow: 0 1px 2px rgba(0,0,0,0.02);
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
             transition: var(--transition);
         }
+
         .select-dropdown:focus {
             border-color: var(--primary);
         }
+
         .date-tab-btn {
             flex-shrink: 0;
             padding: 8px 14px;
@@ -141,6 +150,7 @@
             cursor: pointer;
             transition: var(--transition);
         }
+
         .date-tab-btn.active {
             background: var(--text-main);
             color: #ffffff;
@@ -155,9 +165,11 @@
             border: 1px solid #cbd5e1;
             margin-bottom: 12px;
         }
+
         .search-input-wrapper {
             position: relative;
         }
+
         .search-input {
             width: 100%;
             padding: 10px 36px 10px 12px;
@@ -168,9 +180,11 @@
             outline: none;
             transition: var(--transition);
         }
+
         .search-input:focus {
             border-color: var(--primary);
         }
+
         .clear-search-btn {
             position: absolute;
             right: 10px;
@@ -199,12 +213,14 @@
             align-items: center;
             gap: 4px;
         }
+
         .selector-group {
             display: flex;
             flex-wrap: wrap;
             gap: 8px;
             margin-bottom: 5px;
         }
+
         .swipe-container {
             display: flex;
             flex-wrap: nowrap;
@@ -215,12 +231,15 @@
             margin-bottom: 5px;
             padding: 4px 2px;
         }
+
         .swipe-container::-webkit-scrollbar {
             display: none;
         }
+
         .swipe-container .btn-select {
             flex-shrink: 0;
         }
+
         .btn-select {
             padding: 8px 12px;
             border-radius: var(--radius-sub);
@@ -231,14 +250,16 @@
             border: 1.5px solid #cbd5e1;
             background: #ffffff;
             color: var(--text-main);
-            box-shadow: 0 1px 2px rgba(0,0,0,0.02);
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
         }
+
         .btn-select.apt-btn.active {
             background-color: var(--primary);
             border-color: var(--primary);
             color: #ffffff;
             box-shadow: 0 4px 10px rgba(16, 185, 129, 0.25);
         }
+
         .btn-select.dong-btn.active {
             background-color: var(--secondary);
             border-color: var(--secondary);
@@ -258,6 +279,7 @@
             gap: 8px;
             box-shadow: var(--shadow);
         }
+
         .password-header {
             font-size: 14px;
             font-weight: 850;
@@ -266,10 +288,12 @@
             align-items: center;
             gap: 4px;
         }
+
         .password-body {
             display: flex;
             gap: 8px;
         }
+
         .password-input {
             flex: 1;
             padding: 8px 12px;
@@ -281,6 +305,7 @@
             background: #ffffff;
             color: #78350f;
         }
+
         .btn-pwd-save {
             background: #d97706;
             color: #ffffff;
@@ -292,6 +317,7 @@
             cursor: pointer;
             transition: var(--transition);
         }
+
         .btn-pwd-save:hover {
             background: #b45309;
         }
@@ -302,6 +328,7 @@
             flex-direction: column;
             gap: 12px;
         }
+
         .rider-card {
             background: var(--card-color);
             border-radius: var(--radius-main);
@@ -310,10 +337,12 @@
             overflow: hidden;
             transition: var(--transition);
         }
+
         .rider-card.completed {
             opacity: 0.65;
             background: #f8fafc;
         }
+
         .rider-card-header {
             padding: 14px 16px;
             border-bottom: 1px solid #e2e8f0;
@@ -322,31 +351,37 @@
             align-items: center;
             background: #fafbfd;
         }
+
         .rider-card.completed .rider-card-header {
             background: #e2e8f0;
         }
+
         .unit-number {
             font-size: 17px;
             font-weight: 900;
             color: var(--text-main);
         }
+
         .customer-name {
             font-size: 14px;
             font-weight: 800;
             color: var(--text-sub);
         }
+
         .rider-card-body {
             padding: 14px 16px;
             display: flex;
             flex-direction: column;
             gap: 10px;
         }
+
         .address-text {
             font-size: 14px;
             font-weight: 700;
             color: var(--text-main);
             line-height: 1.4;
         }
+
         .address-box {
             background: #f8fafc;
             border-radius: 8px;
@@ -355,6 +390,7 @@
             font-weight: 600;
             color: var(--text-sub);
         }
+
         .item-list {
             display: flex;
             flex-direction: column;
@@ -362,6 +398,7 @@
             border-top: 1px dashed #cbd5e1;
             padding-top: 10px;
         }
+
         .item-row {
             font-size: 13px;
             font-weight: 700;
@@ -369,11 +406,12 @@
             display: flex;
             justify-content: space-between;
         }
+
         .item-qty {
             color: var(--secondary);
             font-weight: 850;
         }
-        
+
         /* 카드 하단 액션 바 */
         .rider-card-footer {
             padding: 12px 16px;
@@ -382,6 +420,7 @@
             display: flex;
             gap: 6px;
         }
+
         .btn-action {
             flex: 1;
             padding: 10px 0;
@@ -398,40 +437,47 @@
             justify-content: center;
             gap: 4px;
         }
+
         .btn-call {
             background: #ffffff;
             color: var(--blue);
             border-color: rgba(59, 130, 246, 0.25);
         }
+
         .btn-sms {
             background: #ffffff;
             color: var(--text-sub);
             border-color: #cbd5e1;
         }
+
         .btn-complete {
             background: var(--primary);
             color: #ffffff;
             border: none;
             flex: 2;
         }
+
         .btn-complete:hover {
             background: var(--primary-hover);
         }
+
         .btn-photo {
             background: #0284c7;
             color: #ffffff;
             border: none;
             flex: 2;
         }
+
         .btn-photo:hover {
             background: #0369a1;
         }
+
         .rider-card.completed .btn-complete,
         .rider-card.completed .btn-photo {
             background: #94a3b8;
             cursor: default;
         }
-        
+
         /* 배달 완료 사진 썸네일 */
         .photo-thumbnail-container {
             margin-top: 8px;
@@ -442,6 +488,7 @@
             gap: 8px;
             width: 100%;
         }
+
         .photo-thumbnail {
             width: 70px;
             height: 70px;
@@ -467,6 +514,7 @@
             flex-direction: column;
             gap: 15px;
         }
+
         .spinner {
             width: 40px;
             height: 40px;
@@ -475,10 +523,17 @@
             border-radius: 50%;
             animation: spin 1s linear infinite;
         }
+
         @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
         }
+
         .loader-text {
             font-size: 15px;
             font-weight: 700;
@@ -503,6 +558,7 @@
             z-index: 10000;
             white-space: nowrap;
         }
+
         .toast.show {
             transform: translateX(-50%) translateY(0);
             opacity: 1;
@@ -518,10 +574,11 @@
             width: 100%;
             height: 100%;
             overflow: auto;
-            background-color: rgba(0,0,0,0.6);
+            background-color: rgba(0, 0, 0, 0.6);
             align-items: center;
             justify-content: center;
         }
+
         .modal-content {
             background-color: #fefefe;
             padding: 20px;
@@ -530,8 +587,9 @@
             max-width: 500px;
             text-align: center;
             position: relative;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
         }
+
         .modal-close {
             position: absolute;
             right: 16px;
@@ -543,6 +601,7 @@
         }
     </style>
 </head>
+
 <body>
     <!-- 로더 오버레이 -->
     <div class="loader-overlay" id="loader">
@@ -577,7 +636,8 @@
         <!-- 검색창 -->
         <div class="search-card">
             <div class="search-input-wrapper">
-                <input type="text" id="searchInput" class="search-input" placeholder="고객명, 연락처, 호수, 상품명 검색..." onkeyup="handleSearchInput()">
+                <input type="text" id="searchInput" class="search-input" placeholder="고객명, 연락처, 호수, 상품명 검색..."
+                    onkeyup="handleSearchInput()">
                 <button id="clearSearchBtn" class="clear-search-btn" onclick="clearSearch()">&times;</button>
             </div>
         </div>
@@ -606,13 +666,16 @@
     <div id="photo-modal" class="modal" onclick="closePhotoModal()">
         <div class="modal-content" onclick="event.stopPropagation()">
             <span class="modal-close" onclick="closePhotoModal()">&times;</span>
-            <h3 style="margin-top: 0; font-size: 16px; font-weight: 800; color: #1e293b; margin-bottom: 15px;">📸 배달 완료 사진</h3>
-            <img id="photo-modal-img" src="" style="width: 100%; max-height: 450px; object-fit: contain; border-radius: 8px; border: 1.5px solid #e2e8f0; background: #f8fafc;">
+            <h3 style="margin-top: 0; font-size: 16px; font-weight: 800; color: #1e293b; margin-bottom: 15px;">📸 배달 완료
+                사진</h3>
+            <img id="photo-modal-img" src=""
+                style="width: 100%; max-height: 450px; object-fit: contain; border-radius: 8px; border: 1.5px solid #e2e8f0; background: #f8fafc;">
         </div>
     </div>
 
     <!-- 숨겨진 파일 카메라 업로드용 인풋 -->
-    <input type="file" id="camera-input" accept="image/*" capture="environment" style="display: none;" onchange="handleDeliveryPhotoUpload(event)">
+    <input type="file" id="camera-input" accept="image/*" capture="environment" style="display: none;"
+        onchange="handleDeliveryPhotoUpload(event)">
 
     <script>
         const FIREBASE_DB_URL = "https://moketdb-default-rtdb.asia-southeast1.firebasedatabase.app/";
@@ -637,7 +700,7 @@
         let currentYear = "";
         let currentMonth = "";
         let currentDay = "";
-        
+
         let activeApartment = ""; // 선택된 아파트
         let activeDong = ""; // 선택된 동
 
@@ -648,9 +711,9 @@
         function resizeAndCompressImage(file) {
             return new Promise((resolve, reject) => {
                 const reader = new FileReader();
-                reader.onload = function(e) {
+                reader.onload = function (e) {
                     const img = new Image();
-                    img.onload = function() {
+                    img.onload = function () {
                         const canvas = document.createElement('canvas');
                         let width = img.width;
                         let height = img.height;
@@ -678,7 +741,7 @@
         function extractApartmentName(address) {
             if (!address) return "";
             const normalized = String(address).replace(/\s+/g, "");
-            
+
             if (normalized.includes("선동433")) return "푸르지오";
             if (normalized.includes("선동436")) return "더샵";
             if (normalized.includes("선동427")) return "자이";
@@ -689,14 +752,14 @@
             if (normalized.includes("망월동1100")) return "골든센트로";
             if (normalized.includes("망월동1110")) return "부영";
             if (normalized.includes("망월동1090")) return "센트럴포레";
-            
+
             const keywords = [
                 "푸르지오", "더샵", "자이", "베라체", "리버나인", "칸타빌", "골든센트로", "부영", "센트럴포레",
                 "아데나", "신안인스빌", "동원", "호반", "루나리움", "힐스테이트", "디에트르", "아이파크",
                 "e편한", "이편한", "리버뷰자이", "센트럴자이", "리버포레", "롯데캐슬", "스타힐스", "서희스타힐스",
                 "센트리버"
             ];
-            
+
             for (const keyword of keywords) {
                 if (normalized.includes(keyword)) {
                     if (keyword === "이편한" || keyword === "e편한") return "e편한세상";
@@ -708,26 +771,39 @@
 
         // 동 번호(숫자) 추출 헬퍼
         function getDongNumber(addressDetail, address) {
-            const fullAddr = `${address || ''} ${addressDetail || ''}`;
-            let match = fullAddr.match(/([0-9]+)\s*동/);
-            if (match) return match[1];
-            match = fullAddr.match(/([0-9]+)\s*-\s*[0-9]+/);
-            if (match) return match[1];
-            match = fullAddr.match(/\b([0-9]+)\b/);
-            if (match) return match[1];
-            return "";
+            const detail = String(addressDetail || '').trim();
+            const addr = String(address || '').trim();
+
+            // 1. 상세주소에서 "101동" 또는 "101 동" 패턴
+            let match = detail.match(/([0-9]+)\s*동/);
+            if (match) return parseInt(match[1]);
+
+            // 2. 전체주소에서 "101동" 패턴 (단, "선동433" 같은 길/지번명 제외)
+            match = addr.match(/(?:^|[^\uac00-\ud7a3a-zA-Z])([0-9]+)\s*동/);
+            if (match) return parseInt(match[1]);
+
+            // 3. 상세주소에서 "101-202" 또는 "101 - 202" 패턴 (하이픈 앞 숫자가 동)
+            match = detail.match(/([0-9]+)\s*-\s*[0-9]+/);
+            if (match) return parseInt(match[1]);
+
+            // 4. 상세주소의 첫 번째 숫자 (동 번호로 간주)
+            match = detail.match(/^([0-9]+)/);
+            if (match) return parseInt(match[1]);
+
+            match = detail.match(/\b([0-9]+)\b/);
+            if (match) return parseInt(match[1]);
+
+            return 9999;
         }
 
-        // 끝에 동 포맷 헬퍼 (예: 101동 -> 1동, 111동 -> 11동, 12동 -> 12동)
+        // 끝에 동 포맷 헬퍼 (예: 101 -> 101동, 2401 -> 2401동)
         function formatDongName(dongRaw) {
+            if (dongRaw === 9999 || !dongRaw || dongRaw === "기타") return "기타";
             const match = String(dongRaw).match(/(\d+)/);
             if (match) {
-                const numStr = match[1];
-                // 2자리 이하이면 그대로 표시, 3자리 이상이면 끝의 2자리만 파싱해 표시 (101동->1동, 111동->11동)
-                const parsedNum = numStr.length <= 2 ? parseInt(numStr) : parseInt(numStr.slice(-2));
-                return parsedNum + "동";
+                return parseInt(match[1]) + "동";
             }
-            return dongRaw || "기타";
+            return String(dongRaw) + "동";
         }
 
         // 날짜/시간 비교를 위한 문자열 파싱 헬퍼
@@ -784,17 +860,17 @@
         function loadOrdersFromCache() {
             const cached = localStorage.getItem('moket_orders_cache');
             const cachedPasswords = localStorage.getItem('moket_entrance_passwords_cache');
-            
+
             if (cached) {
                 try {
                     const data = JSON.parse(cached);
                     entrancePasswords = cachedPasswords ? JSON.parse(cachedPasswords) : {};
-                    
+
                     rawOrders = [];
                     for (const phone in data) {
                         for (const orderKey in data[phone]) {
                             const it = data[phone][orderKey];
-                            
+
                             const isCanceled = (it.canceled === true || it.canceled === "true" || String(it.canceled).toUpperCase() === "TRUE");
                             if (isCanceled) continue;
                             const isDelivery = (it.shippingMethod === '배달주문' || (it.shippingMethod !== '매장픽업' && it.address && String(it.address).trim() !== ""));
@@ -831,16 +907,16 @@
             if (!hasCache) {
                 showLoader("데이터 로딩 중...");
             }
-            
+
             try {
                 const [response, pwdRes] = await Promise.all([
                     fetch(`${FIREBASE_DB_URL}orders.json?t=${Date.now()}`),
                     fetch(`${FIREBASE_DB_URL}entrance_passwords.json?t=${Date.now()}`).catch(e => null)
                 ]);
-                
+
                 if (!response.ok) throw new Error("Firebase 연결 실패");
                 const data = await response.json() || {};
-                
+
                 // 캐시 업데이트
                 localStorage.setItem('moket_orders_cache', JSON.stringify(data));
 
@@ -855,7 +931,7 @@
                 for (const phone in data) {
                     for (const orderKey in data[phone]) {
                         const it = data[phone][orderKey];
-                        
+
                         const isCanceled = (it.canceled === true || it.canceled === "true" || String(it.canceled).toUpperCase() === "TRUE");
                         if (isCanceled) continue; // 취소 건 제외
                         // 배달 주문만 필터링 (수령방법이 배달주문이거나, 수령방법이 매장픽업이 아닌데 주소가 써있을 때)
@@ -898,21 +974,21 @@
             currentYear = parts[0];
             currentMonth = parts[1];
             currentDay = "전체";
-            
+
             buildDateTabs();
         }
 
         // 날짜 탭 구축
         function buildDateTabs() {
             const dateContainer = document.getElementById('date-tabs');
-            
+
             if (!dateContainer) return;
-            
+
             dateContainer.innerHTML = '';
 
             // 1. 모든 주문에서 유효한 년, 월, 일 정보 수집
             const monthsMap = {}; // Key: "YYYY년 MM월" -> { year: "YYYY년", month: "MM월", days: Set }
-            
+
             rawOrders.forEach(item => {
                 const info = getOrderDateInfo(item);
                 if (info.dateStr && info.dateStr !== "기타") {
@@ -921,7 +997,7 @@
                     const m = parseInt(parts[1]) + "월";
                     const d = parseInt(parts[2]) + "일";
                     const monthKey = `${y} ${m}`;
-                    
+
                     if (!monthsMap[monthKey]) {
                         monthsMap[monthKey] = {
                             year: y,
@@ -997,7 +1073,7 @@
                 currentDay = "전체";
                 document.querySelectorAll('#date-tabs .date-tab-btn').forEach(b => b.classList.remove('active'));
                 allDayBtn.classList.add('active');
-                
+
                 activeApartment = "";
                 activeDong = "전체";
                 renderFilteredData();
@@ -1013,7 +1089,7 @@
                     currentDay = day;
                     document.querySelectorAll('#date-tabs .date-tab-btn').forEach(b => b.classList.remove('active'));
                     btn.classList.add('active');
-                    
+
                     activeApartment = "";
                     activeDong = "전체";
                     renderFilteredData();
@@ -1034,7 +1110,7 @@
             let filtered = rawOrders.filter(item => {
                 const info = getOrderDateInfo(item);
                 if (info.dateStr === "기타") return false;
-                
+
                 const parts = info.dateStr.split('-');
                 const itemYear = parts[0] + "년";
                 const itemMonth = parseInt(parts[1]) + "월";
@@ -1053,9 +1129,9 @@
                     const phoneStr = item.phone || "";
                     const itemStr = item.item || "";
                     return addressStr.toLowerCase().includes(search) ||
-                           nameStr.toLowerCase().includes(search) ||
-                           phoneStr.includes(search) ||
-                           itemStr.toLowerCase().includes(search);
+                        nameStr.toLowerCase().includes(search) ||
+                        phoneStr.includes(search) ||
+                        itemStr.toLowerCase().includes(search);
                 });
             }
 
@@ -1106,7 +1182,7 @@
                 activeDong = "전체";
                 document.querySelectorAll('.apt-btn').forEach(b => b.classList.remove('active'));
                 allAptBtn.classList.add('active');
-                
+
                 document.getElementById('dong-section').style.display = 'none';
                 renderOrderCards(filtered);
             };
@@ -1143,7 +1219,7 @@
         function renderDongButtons(aptOrders) {
             const dongContainer = document.getElementById('dong-buttons');
             dongContainer.innerHTML = '';
-            
+
             // 아파트 주문 건 중 동 이름으로 분류
             const dongGroups = {};
             aptOrders.forEach(item => {
@@ -1155,7 +1231,12 @@
                 dongGroups[dongFormatted].push(item);
             });
 
-            const dongs = Object.keys(dongGroups).sort((a, b) => a.localeCompare(b, undefined, {numeric: true}));
+            const dongs = Object.keys(dongGroups).sort((a, b) => {
+                const numA = parseInt(a.replace(/\D/g, "")) || 9999;
+                const numB = parseInt(b.replace(/\D/g, "")) || 9999;
+                if (numA !== numB) return numA - numB;
+                return a.localeCompare(b);
+            });
 
             if (dongs.length === 0) {
                 document.getElementById('dong-section').style.display = 'none';
@@ -1213,12 +1294,47 @@
 
             // 동별 그룹화된 주문들의 호수 오름차순 정렬을 위한 헬퍼
             const extractHoNum = (item) => {
-                const detail = item.addressDetail || "";
-                const match = detail.match(/([0-9]+)\s*호/);
+                const detail = String(item.addressDetail || "").trim();
+                const addr = String(item.address || "").trim();
+
+                // 1. 상세주소에서 "202호" 또는 "202 호"
+                let match = detail.match(/([0-9]+)\s*호/);
                 if (match) return parseInt(match[1]);
-                const matchDash = detail.match(/[0-9]+\s*-\s*([0-9]+)/);
-                if (matchDash) return parseInt(matchDash[1]);
+
+                // 2. 상세주소에서 "101-202" 또는 "101 - 202" (하이픈 뒤 숫자가 호)
+                match = detail.match(/[0-9]+\s*-\s*([0-9]+)/);
+                if (match) return parseInt(match[1]);
+
+                // 3. 상세주소에서 "101동 202" -> 뒤쪽 숫자
+                match = detail.match(/동\s*([0-9]+)/);
+                if (match) return parseInt(match[1]);
+
+                match = detail.match(/\b([0-9]+)\b\s*$/);
+                if (match) return parseInt(match[1]);
+
+                // 4. 주소 전체에서 "202호"
+                match = addr.match(/([0-9]+)\s*호/);
+                if (match) return parseInt(match[1]);
+
                 return 9999;
+            };
+
+            // 동 순 오름차순 -> 동이 같으면 호수 오름차순 정렬 유틸
+            const sortOrdersByDongAndHo = (a, b) => {
+                const dongA = getDongNumber(a.addressDetail, a.address);
+                const dongB = getDongNumber(b.addressDetail, b.address);
+
+                if (dongA !== dongB) {
+                    return dongA - dongB;
+                }
+
+                const hoA = extractHoNum(a);
+                const hoB = extractHoNum(b);
+                if (hoA !== hoB) {
+                    return hoA - hoB;
+                }
+
+                return String(a.name || "").localeCompare(String(b.name || ""));
             };
 
             // 정렬 처리
@@ -1233,24 +1349,20 @@
                 dongOrders.sort((a, b) => {
                     const aptA = extractApartmentName(a.address);
                     const aptB = extractApartmentName(b.address);
-                    
+
                     if (aptA !== aptB) {
                         const wA = getAptWeight(aptA);
                         const wB = getAptWeight(aptB);
                         if (wA !== wB) return wA - wB;
                         return aptA.localeCompare(aptB);
                     }
-                    
-                    const dongA = getDongNumber(a.addressDetail, a.address);
-                    const dongB = getDongNumber(b.addressDetail, b.address);
-                    if (dongA !== dongB) {
-                        return dongA.localeCompare(dongB, undefined, {numeric: true});
-                    }
-                    
-                    return extractHoNum(a) - extractHoNum(b);
+
+                    return sortOrdersByDongAndHo(a, b);
                 });
             } else {
-                dongOrders.sort((a, b) => extractHoNum(a) - extractHoNum(b));
+                dongOrders.sort((a, b) => {
+                    return sortOrdersByDongAndHo(a, b);
+                });
             }
 
             // 고객별(전화번호 기준) 주문 그룹화
@@ -1258,7 +1370,7 @@
             dongOrders.forEach(item => {
                 const customerKey = String(item.phone || "").replace(/\D/g, "");
                 if (!customerKey) return;
-                
+
                 if (!customerGroups[customerKey]) {
                     customerGroups[customerKey] = {
                         name: item.name,
@@ -1274,17 +1386,17 @@
                         deliveryPhotoTime: null
                     };
                 }
-                
+
                 customerGroups[customerKey].orders.push(item);
                 customerGroups[customerKey].itemsList.push({
                     name: item.item,
                     qty: item.qty
                 });
-                
+
                 if (item.entrance && !customerGroups[customerKey].entrance) {
                     customerGroups[customerKey].entrance = item.entrance;
                 }
-                
+
                 if (item.deliveryPhotoExists && !customerGroups[customerKey].deliveryPhotoExists) {
                     customerGroups[customerKey].deliveryPhotoExists = true;
                     customerGroups[customerKey].deliveryPhotoTime = item.deliveryPhotoTime;
@@ -1345,7 +1457,7 @@
                 } else {
                     hoLabel = representativeItem.addressDetail || "주소상세";
                 }
-                
+
                 // 동 원본 번호 및 아파트 표시 분기
                 const rawDong = getDongNumber(representativeItem.addressDetail, representativeItem.address);
                 let fullDongHo = "";
@@ -1426,7 +1538,7 @@
                 });
                 if (!res.ok) throw new Error("Firebase 저장 실패");
                 showToast("공동현관 비밀번호가 저장되었습니다.");
-                
+
                 if (!entrancePasswords[activeApartment]) {
                     entrancePasswords[activeApartment] = {};
                 }
@@ -1453,7 +1565,7 @@
                     isStocked: true,
                     delivered: true
                 };
-                
+
                 orderKeys.forEach(orderKey => {
                     const url = `${FIREBASE_DB_URL}orders/${cleanPhone}/${orderKey}.json`;
                     promises.push(
@@ -1464,16 +1576,16 @@
                         })
                     );
                 });
-                
+
                 await Promise.all(promises);
                 showToast("배달 완료 처리되었습니다.");
-                
+
                 // 완료 메시지 발송 모달/연동 호출
                 const messageText = `[모켓] ${customerName}님, 주문하신 상품의 배달이 완료되었습니다. 감사합니다.🙇🏻‍♂️`;
                 const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
                 const separator = isIOS ? '&' : '?';
                 const smsUrl = `sms:${cleanPhone}${separator}body=${encodeURIComponent(messageText)}`;
-                
+
                 setTimeout(() => {
                     window.location.href = smsUrl;
                 }, 800);
@@ -1505,7 +1617,7 @@
             try {
                 const compressedBase64 = await resizeAndCompressImage(file);
                 const cleanPhone = String(activeUploadPhone).replace(/\D/g, "");
-                
+
                 const patchBody = {
                     status: "배달완료",
                     canceled: false,
@@ -1525,7 +1637,7 @@
                         body: JSON.stringify(patchBody)
                     }).then(async (res) => {
                         if (!res.ok) throw new Error("Firebase 전송 실패");
-                        
+
                         // 실제 이미지 데이터는 delivery_photos 노드에 별도 저장
                         await fetch(`${FIREBASE_DB_URL}delivery_photos/${cleanPhone}/${orderKey}.json`, {
                             method: 'PUT',
@@ -1538,18 +1650,18 @@
 
                 await Promise.all(promises);
                 showToast("배달 사진이 업로드되었으며, 배달 완료 처리되었습니다.");
-                
+
                 // 완료 메시지 발송 모달/연동 호출
                 const customerName = activeUploadCustomerName || "고객";
                 const messageText = `[모켓] ${customerName}님, 주문하신 상품의 배달이 완료되었습니다. 감사합니다.🙇🏻‍♂️`;
                 const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
                 const separator = isIOS ? '&' : '?';
                 const smsUrl = `sms:${cleanPhone}${separator}body=${encodeURIComponent(messageText)}`;
-                
+
                 activeUploadPhone = "";
                 activeUploadKeys = [];
                 activeUploadCustomerName = "";
-                
+
                 setTimeout(() => {
                     window.location.href = smsUrl;
                 }, 800);
@@ -1642,9 +1754,10 @@
             }, 2500);
         }
 
-        window.onload = function() {
+        window.onload = function () {
             loadData();
         };
     </script>
 </body>
+
 </html>
