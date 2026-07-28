@@ -803,12 +803,14 @@
             return 9999;
         }
 
-        // 끝에 동 포맷 헬퍼 (예: 101 -> 101동, 2401 -> 2401동)
+        // 끝에 동 포맷 헬퍼 (동 번호 뒤 두 자리만 표시: 예: 101 -> 01동, 1105 -> 05동)
         function formatDongName(dongRaw) {
             if (dongRaw === 9999 || !dongRaw || dongRaw === "기타") return "기타";
             const match = String(dongRaw).match(/(\d+)/);
             if (match) {
-                return parseInt(match[1]) + "동";
+                const numStr = match[1];
+                const lastTwo = numStr.slice(-2).padStart(2, '0');
+                return lastTwo + "동";
             }
             return String(dongRaw) + "동";
         }
