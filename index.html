@@ -617,7 +617,7 @@
         <h1>MOKET 배달배송</h1>
         <div class="sync-status" onclick="loadData(true)" style="cursor: pointer;" title="새로고침">
             <span class="sync-dot"></span>
-            <span id="sync-time-text">🔄 동기화 중...</span>
+            <span id="sync-time-text">동기화 중...</span>
         </div>
     </div>
 
@@ -911,7 +911,7 @@
             const syncTimeTextEl = document.getElementById('sync-time-text');
             const syncDotEl = document.querySelector('.sync-dot');
 
-            if (syncTimeTextEl) syncTimeTextEl.innerText = "🔄 동기화 중...";
+            if (syncTimeTextEl) syncTimeTextEl.innerText = "동기화 중...";
             if (syncDotEl) syncDotEl.style.backgroundColor = "#eab308";
 
             try {
