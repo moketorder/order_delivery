@@ -615,9 +615,9 @@
     <!-- 헤더 -->
     <div class="header">
         <h1>MOKET 배달배송</h1>
-        <div class="sync-status">
+        <div class="sync-status" onclick="loadData(true)" style="cursor: pointer;" title="새로고침">
             <span class="sync-dot"></span>
-            <span id="sync-time-text">대기 중</span>
+            <span id="sync-time-text">🔄 동기화 중...</span>
         </div>
     </div>
 
@@ -905,15 +905,14 @@
         }
 
         // DB에서 데이터 로드
-        async function loadData() {
-            let hasCache = false;
-            if (isInitialLoad) {
-                hasCache = loadOrdersFromCache();
-                isInitialLoad = false;
-            }
-            if (!hasCache) {
-                showLoader("데이터 로딩 중...");
-            }
+        async function loadData(isManualRefresh = false) {
+            showLoader("데이터를 동기화하고 있습니다...");
+
+            const syncTimeTextEl = document.getElementById('sync-time-text');
+            const syncDotEl = document.querySelector('.sync-dot');
+
+            if (syncTimeTextEl) syncTimeTextEl.innerText = "🔄 동기화 중...";
+            if (syncDotEl) syncDotEl.style.backgroundColor = "#eab308";
 
             try {
                 const [response, pwdRes] = await Promise.all([
@@ -965,12 +964,20 @@
                 rawOrders.sort((a, b) => parseTimestampToDate(b.timestamp) - parseTimestampToDate(a.timestamp));
 
                 const now = new Date();
-                document.getElementById('sync-time-text').innerText = `${now.getHours()}:${String(now.getMinutes()).padStart(2, '0')} 동기화됨`;
+                const nowStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+                if (syncTimeTextEl) syncTimeTextEl.innerText = `${nowStr} 동기화 완료`;
+                if (syncDotEl) syncDotEl.style.backgroundColor = "var(--primary)";
+
+                if (isManualRefresh) {
+                    showToast("최신 주문 데이터가 동기화되었습니다.");
+                }
 
                 buildDateTabs();
             } catch (e) {
                 console.error(e);
                 showToast("데이터를 로드하지 못했습니다.");
+                if (syncTimeTextEl) syncTimeTextEl.innerText = "동기화 실패";
+                if (syncDotEl) syncDotEl.style.backgroundColor = "var(--red)";
             } finally {
                 hideLoader();
             }
