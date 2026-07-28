@@ -633,12 +633,19 @@
             <!-- 동적 로드 -->
         </div>
 
-        <!-- 검색창 -->
+        <!-- 검색창 및 날짜 범위 필터 -->
         <div class="search-card">
-            <div class="search-input-wrapper">
-                <input type="text" id="searchInput" class="search-input" placeholder="고객명, 연락처, 호수, 상품명 검색..."
-                    onkeyup="handleSearchInput()">
-                <button id="clearSearchBtn" class="clear-search-btn" onclick="clearSearch()">&times;</button>
+            <div class="search-input-wrapper" style="display: flex; gap: 8px; align-items: center;">
+                <select id="filterDateRange" class="select-filter" style="width: 76px; min-width: 76px; flex-shrink: 0; padding: 10px 4px; border: 1.5px solid #cbd5e1; border-radius: var(--radius-sub); font-size: 13px; font-weight: 700; background: white; outline: none;" onchange="handleFilterChange()">
+                    <option value="day">🔍 일</option>
+                    <option value="week" selected>🔍 주</option>
+                    <option value="month">🔍 월</option>
+                    <option value="all">🔍 전체</option>
+                </select>
+                <div style="position: relative; flex: 1; min-width: 0;">
+                    <input type="text" id="searchInput" class="search-input" placeholder="고객명, 연락처, 호수, 상품명 검색..." onkeyup="handleSearchInput()">
+                    <button id="clearSearchBtn" class="clear-search-btn" onclick="clearSearch()">&times;</button>
+                </div>
             </div>
         </div>
 
@@ -910,8 +917,8 @@
 
             try {
                 const [response, pwdRes] = await Promise.all([
-                    fetch(`${FIREBASE_DB_URL}orders.json?t=${Date.now()}`),
-                    fetch(`${FIREBASE_DB_URL}entrance_passwords.json?t=${Date.now()}`).catch(e => null)
+                    fetch(`${FIREBASE_DB_URL}orders.json`),
+                    fetch(`${FIREBASE_DB_URL}entrance_passwords.json`).catch(e => null)
                 ]);
 
                 if (!response.ok) throw new Error("Firebase 연결 실패");
@@ -1100,25 +1107,120 @@
             renderFilteredData();
         }
 
+        let isArchiveLoaded = false;
+
+        async function loadArchiveOrdersIfNeeded() {
+            if (isArchiveLoaded) return;
+            showLoader("📁 과거 아카이브 보관함 데이터를 불러오는 중...");
+            try {
+                const res = await fetch(`${FIREBASE_DB_URL}orders_archive.json`);
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data) {
+                        for (const phone in data) {
+                            for (const orderKey in data[phone]) {
+                                const it = data[phone][orderKey];
+                                const isCanceled = (it.canceled === true || it.canceled === "true" || String(it.canceled).toUpperCase() === "TRUE");
+                                if (isCanceled) continue;
+
+                                const isDelivery = (it.shippingMethod === '배달주문' || (it.shippingMethod !== '매장픽업' && it.address && String(it.address).trim() !== ""));
+                                if (!isDelivery) continue;
+
+                                const isDelivered = (it.delivered === true || it.delivered === "true" || String(it.delivered).toUpperCase() === "TRUE");
+                                const isStocked = (it.isStocked === true || it.isStocked === "true" || String(it.isStocked).toUpperCase() === "TRUE");
+
+                                let calculatedStatus = "대기";
+                                if (isDelivered) calculatedStatus = "배달완료";
+                                else if (isStocked) calculatedStatus = "입고";
+
+                                const exists = rawOrders.some(o => o.phone === phone && o.orderKey === orderKey);
+                                if (!exists) {
+                                    rawOrders.push({
+                                        phone,
+                                        orderKey,
+                                        ...it,
+                                        status: calculatedStatus,
+                                        isArchived: true
+                                    });
+                                }
+                            }
+                        }
+                        rawOrders.sort((a, b) => parseTimestampToDate(b.timestamp) - parseTimestampToDate(a.timestamp));
+                    }
+                }
+                isArchiveLoaded = true;
+            } catch (e) {
+                console.error("아카이브 로드 실패:", e);
+            } finally {
+                hideLoader();
+            }
+        }
+
+        async function handleFilterChange() {
+            const searchRangeEl = document.getElementById('filterDateRange');
+            const searchRange = searchRangeEl ? searchRangeEl.value : 'week';
+            if (searchRange === 'all' && !isArchiveLoaded) {
+                await loadArchiveOrdersIfNeeded();
+            }
+            renderFilteredData();
+        }
+
+        async function handleSearchInput() {
+            const searchRangeEl = document.getElementById('filterDateRange');
+            const searchRange = searchRangeEl ? searchRangeEl.value : 'week';
+            if (searchRange === 'all' && !isArchiveLoaded) {
+                await loadArchiveOrdersIfNeeded();
+            }
+            renderFilteredData();
+        }
+
         // 필터링 및 아파트/동 구조 렌더링
         function renderFilteredData() {
             const search = document.getElementById('searchInput').value.toLowerCase().trim();
             const clearBtn = document.getElementById('clearSearchBtn');
             if (clearBtn) clearBtn.style.display = search !== "" ? "flex" : "none";
 
-            // 1단계: 선택 날짜 필터링
+            const searchRangeEl = document.getElementById('filterDateRange');
+            const searchRange = searchRangeEl ? searchRangeEl.value : 'week';
+
+            const todayStart = new Date();
+            todayStart.setHours(0, 0, 0, 0);
+            const todayTime = todayStart.getTime();
+
+            // 1단계: 날짜 범위 필터링 (기본값: 주 ±7일)
             let filtered = rawOrders.filter(item => {
                 const info = getOrderDateInfo(item);
-                if (info.dateStr === "기타") return false;
-
-                const parts = info.dateStr.split('-');
-                const itemYear = parts[0] + "년";
-                const itemMonth = parseInt(parts[1]) + "월";
-                const itemDay = parseInt(parts[2]) + "일";
-
-                if (itemYear !== currentYear || itemMonth !== currentMonth) return false;
-                if (currentDay !== "전체" && itemDay !== currentDay) return false;
-                return true;
+                
+                if (searchRange === "day") {
+                    if (info.dateStr === "기타") return true;
+                    const parts = info.dateStr.split('-');
+                    const itemYear = parts[0] + "년";
+                    const itemMonth = parseInt(parts[1]) + "월";
+                    const itemDay = parseInt(parts[2]) + "일";
+                    return itemYear === currentYear && itemMonth === currentMonth && (currentDay === "전체" || itemDay === currentDay);
+                } else if (searchRange === "week") {
+                    // 주: 당일 기준 앞뒤 7일 (-7일 ~ +7일)
+                    if (!info.dateStr || info.dateStr === "기타") return true;
+                    const parts = info.dateStr.split('-');
+                    if (parts.length === 3) {
+                        const itemDate = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+                        const t = itemDate.getTime();
+                        return t >= (todayTime - 7 * 24 * 60 * 60 * 1000) && t <= (todayTime + 8 * 24 * 60 * 60 * 1000) - 1;
+                    }
+                    return true;
+                } else if (searchRange === "month") {
+                    // 월: 당일 기준 앞뒤 30일 (-30일 ~ +30일)
+                    if (!info.dateStr || info.dateStr === "기타") return true;
+                    const parts = info.dateStr.split('-');
+                    if (parts.length === 3) {
+                        const itemDate = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+                        const t = itemDate.getTime();
+                        return t >= (todayTime - 30 * 24 * 60 * 60 * 1000) && t <= (todayTime + 31 * 24 * 60 * 60 * 1000) - 1;
+                    }
+                    return true;
+                } else { // "all" (과거 전체 포함)
+                    return true;
+                }
             });
 
             // 2단계: 검색어 필터링
