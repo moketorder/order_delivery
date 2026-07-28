@@ -1582,13 +1582,30 @@
                 // 전화번호 포맷 정규화
                 const cleanPhone = String(customer.phone || "").replace(/\D/g, "");
 
+                // 입금 상태 판정
+                const isAllPaid = customer.orders.every(o => o.paid === true || o.paid === "true" || o.paid === "True" || o.isPaid === true || o.isPaid === "true");
+                const isAnyPaid = customer.orders.some(o => o.paid === true || o.paid === "true" || o.paid === "True" || o.isPaid === true || o.isPaid === "true");
+
+                let paidBadgeHtml = '';
+                if (isAllPaid) {
+                    paidBadgeHtml = `<span style="font-size: 11px; font-weight: 800; background: #e8f5e9; color: #2e7d32; padding: 2px 6px; border-radius: 4px; border: 1px solid #a5d6a7; display: inline-flex; align-items: center; gap: 2px;">💵 입금완료</span>`;
+                } else if (isAnyPaid) {
+                    paidBadgeHtml = `<span style="font-size: 11px; font-weight: 800; background: #fff8e1; color: #b78103; padding: 2px 6px; border-radius: 4px; border: 1px solid #ffe082; display: inline-flex; align-items: center; gap: 2px;">💵 부분입금</span>`;
+                } else {
+                    paidBadgeHtml = `<span style="font-size: 11px; font-weight: 800; background: #fef2f2; color: #ef4444; padding: 2px 6px; border-radius: 4px; border: 1px solid #fca5a5; display: inline-flex; align-items: center; gap: 2px;">🔴 미입금</span>`;
+                }
+
                 // 주문 상품 묶음 HTML 생성
-                let itemHtml = customer.itemsList.map(it => `
-                    <div class="item-row">
-                        <span>${it.name}</span>
-                        <span class="item-qty">${it.qty}개</span>
-                    </div>
-                `).join('');
+                let itemHtml = customer.itemsList.map((it, idx) => {
+                    const origOrder = customer.orders[idx];
+                    const isPaidItem = origOrder && (origOrder.paid === true || origOrder.paid === "true" || origOrder.paid === "True" || origOrder.isPaid === true || origOrder.isPaid === "true");
+                    return `
+                        <div class="item-row" style="display: flex; justify-content: space-between; align-items: center;">
+                            <span>${it.name} ${isPaidItem ? `<span style="font-size:10px; font-weight:800; background:#e8f5e9; color:#2e7d32; padding:1px 4px; border-radius:3px; margin-left:4px;">💵 입금완료</span>` : `<span style="font-size:10px; font-weight:800; background:#fef2f2; color:#ef4444; padding:1px 4px; border-radius:3px; margin-left:4px;">🔴 미입금</span>`}</span>
+                            <span class="item-qty">${it.qty}개</span>
+                        </div>
+                    `;
+                }).join('');
 
                 // 묶음 주문의 모든 orderKey들을 쉼표로 연결하여 액션 파라미터로 넘김
                 const orderKeysStr = customer.orders.map(o => o.orderKey).join(',');
