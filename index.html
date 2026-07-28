@@ -637,8 +637,8 @@
         <div class="search-card">
             <div class="search-input-wrapper" style="display: flex; gap: 8px; align-items: center;">
                 <select id="filterDateRange" class="select-filter" style="width: 76px; min-width: 76px; flex-shrink: 0; padding: 10px 4px; border: 1.5px solid #cbd5e1; border-radius: var(--radius-sub); font-size: 13px; font-weight: 700; background: white; outline: none;" onchange="handleFilterChange()">
-                    <option value="day">🔍 일</option>
-                    <option value="week" selected>🔍 주</option>
+                    <option value="day" selected>🔍 일</option>
+                    <option value="week">🔍 주</option>
                     <option value="month">🔍 월</option>
                     <option value="all">🔍 전체</option>
                 </select>
@@ -1158,7 +1158,7 @@
 
         async function handleFilterChange() {
             const searchRangeEl = document.getElementById('filterDateRange');
-            const searchRange = searchRangeEl ? searchRangeEl.value : 'week';
+            const searchRange = searchRangeEl ? searchRangeEl.value : 'day';
             if (searchRange === 'all' && !isArchiveLoaded) {
                 await loadArchiveOrdersIfNeeded();
             }
@@ -1167,7 +1167,7 @@
 
         async function handleSearchInput() {
             const searchRangeEl = document.getElementById('filterDateRange');
-            const searchRange = searchRangeEl ? searchRangeEl.value : 'week';
+            const searchRange = searchRangeEl ? searchRangeEl.value : 'day';
             if (searchRange === 'all' && !isArchiveLoaded) {
                 await loadArchiveOrdersIfNeeded();
             }
@@ -1181,7 +1181,7 @@
             if (clearBtn) clearBtn.style.display = search !== "" ? "flex" : "none";
 
             const searchRangeEl = document.getElementById('filterDateRange');
-            const searchRange = searchRangeEl ? searchRangeEl.value : 'week';
+            const searchRange = searchRangeEl ? searchRangeEl.value : 'day';
 
             const todayStart = new Date();
             todayStart.setHours(0, 0, 0, 0);
