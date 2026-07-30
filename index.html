@@ -640,11 +640,16 @@
         <!-- 검색창 및 날짜 범위 필터 -->
         <div class="search-card">
             <div class="search-input-wrapper" style="display: flex; gap: 8px; align-items: center;">
-                <select id="filterDateRange" class="select-filter" style="width: 76px; min-width: 76px; flex-shrink: 0; padding: 10px 4px; border: 1.5px solid #cbd5e1; border-radius: var(--radius-sub); font-size: 13px; font-weight: 700; background: white; outline: none;" onchange="handleFilterChange()">
-                    <option value="day" selected>🔍 일</option>
-                    <option value="week">🔍 주</option>
-                    <option value="month">🔍 월</option>
-                    <option value="all">🔍 전체</option>
+                <select id="filterDateRange" class="select-filter" style="width: 72px; min-width: 72px; flex-shrink: 0; padding: 10px 4px; border: 1.5px solid #cbd5e1; border-radius: var(--radius-sub); font-size: 13px; font-weight: 700; background: white; outline: none;" onchange="handleFilterChange()">
+                    <option value="day" selected>📅 일</option>
+                    <option value="week">📅 주</option>
+                    <option value="month">📅 월</option>
+                    <option value="all">📅 전체</option>
+                </select>
+                <select id="filterStatus" class="select-filter" style="width: 90px; min-width: 90px; flex-shrink: 0; padding: 10px 4px; border: 1.5px solid #cbd5e1; border-radius: var(--radius-sub); font-size: 13px; font-weight: 700; background: white; outline: none;" onchange="handleFilterChange()">
+                    <option value="all" selected>📦 전체</option>
+                    <option value="incomplete">🚚 미완료</option>
+                    <option value="completed">✅ 완료</option>
                 </select>
                 <div style="position: relative; flex: 1; min-width: 0;">
                     <input type="text" id="searchInput" class="search-input" placeholder="고객명, 연락처, 호수, 상품명 검색..." onkeyup="handleSearchInput()">
@@ -971,41 +976,15 @@
 
                 rawOrders = [];
                 for (const phone in data) {
-                    // 고객별 주문 중 배달주문 주소가 존재하는지 판별
-                    const customerOrdersObj = data[phone] || {};
-                    let customerAddress = "";
-                    let customerEntrance = "";
-                    let hasDeliveryOrder = false;
+                    for (const orderKey in data[phone]) {
+                        const it = data[phone][orderKey];
 
-                    for (const oKey in customerOrdersObj) {
-                        const it = customerOrdersObj[oKey];
                         const isCanceled = (it.canceled === true || it.canceled === "true" || String(it.canceled).toUpperCase() === "TRUE");
-                        if (isCanceled) continue;
+                        if (isCanceled) continue; // 취소 건 제외
 
-                        if (it.address && String(it.address).trim() !== "") {
-                            customerAddress = it.address;
-                            if (it.addressDetail) customerAddress += " " + it.addressDetail;
-                        }
-                        if (it.entrance) customerEntrance = it.entrance;
-                        if (it.shippingMethod === '배달주문' || (it.address && String(it.address).trim() !== "")) {
-                            hasDeliveryOrder = true;
-                        }
-                    }
-
-                    if (!hasDeliveryOrder) continue; // 배달 관련 주문이 없으면 제외
-
-                    for (const orderKey in customerOrdersObj) {
-                        const it = customerOrdersObj[orderKey];
-                        const isCanceled = (it.canceled === true || it.canceled === "true" || String(it.canceled).toUpperCase() === "TRUE");
-                        if (isCanceled) continue;
-
-                        // 주소가 없는 상품 항목도 고객 대표 배달 주소를 복사하여 배달 목록에 함께 노출
-                        if (!it.address && customerAddress) {
-                            it.address = customerAddress;
-                        }
-                        if (!it.entrance && customerEntrance) {
-                            it.entrance = customerEntrance;
-                        }
+                        // 배달기사 앱에는 배달 주문 건만 엄격하게 필터링 (매장픽업 및 배달이 아닌 주문은 철저히 제외)
+                        const isDelivery = (it.shippingMethod === '배달주문' || (it.shippingMethod !== '매장픽업' && it.address && String(it.address).trim() !== ""));
+                        if (!isDelivery) continue;
 
                         const isDelivered = (it.delivered === true || it.delivered === "true" || String(it.delivered).toUpperCase() === "TRUE");
                         const isStocked = (it.isStocked === true || it.isStocked === "true" || String(it.isStocked).toUpperCase() === "TRUE");
@@ -1023,7 +1002,6 @@
                         });
                     }
                 }
-
                 // 타임스탬프 기준 내림차순 정렬
                 rawOrders.sort((a, b) => parseTimestampToDate(b.timestamp) - parseTimestampToDate(a.timestamp));
 
@@ -1308,6 +1286,37 @@
                 });
             }
 
+            // 3단계: 배달 완료/미완료 상태 드롭다운 필터링
+            const filterStatusEl = document.getElementById('filterStatus');
+            const filterStatus = filterStatusEl ? filterStatusEl.value : 'all';
+
+            if (filterStatus !== 'all') {
+                const customerCompletionMap = {};
+                rawOrders.forEach(item => {
+                    const cleanPhone = String(item.phone || "").replace(/\D/g, "");
+                    if (!cleanPhone) return;
+                    if (!customerCompletionMap[cleanPhone]) {
+                        customerCompletionMap[cleanPhone] = [];
+                    }
+                    customerCompletionMap[cleanPhone].push(item);
+                });
+
+                filtered = filtered.filter(item => {
+                    const cleanPhone = String(item.phone || "").replace(/\D/g, "");
+                    const customerItems = customerCompletionMap[cleanPhone] || [item];
+                    const isCustomerCompleted = customerItems.every(it => {
+                        return (it.delivered === true || it.delivered === "true" || String(it.delivered).toUpperCase() === "TRUE" || it.status === "배달완료");
+                    });
+
+                    if (filterStatus === 'completed') {
+                        return isCustomerCompleted;
+                    } else if (filterStatus === 'incomplete') {
+                        return !isCustomerCompleted;
+                    }
+                    return true;
+                });
+            }
+
             // 3단계: 아파트별 그룹화
             const aptGroups = {};
             filtered.forEach(item => {
@@ -1349,7 +1358,7 @@
             // "전체" 아파트 버튼 생성
             const allAptBtn = document.createElement('button');
             allAptBtn.className = `btn-select apt-btn ${activeApartment === '전체' ? 'active' : ''}`;
-            allAptBtn.innerText = `전체 ${getDeliveryProgressText(filtered)}`;
+            allAptBtn.innerText = `전체 (${getUniqueCustomerCount(filtered)})`;
             allAptBtn.onclick = () => {
                 activeApartment = "전체";
                 activeDong = "전체";
@@ -1364,7 +1373,7 @@
             apartments.forEach(apt => {
                 const btn = document.createElement('button');
                 btn.className = `btn-select apt-btn ${apt === activeApartment ? 'active' : ''}`;
-                btn.innerText = `${apt} ${getDeliveryProgressText(aptGroups[apt])}`;
+                btn.innerText = `${apt} (${getUniqueCustomerCount(aptGroups[apt])})`;
                 btn.onclick = () => {
                     activeApartment = apt;
                     activeDong = "전체"; // 아파트 변경 시 동을 "전체"로 설정
@@ -1426,7 +1435,7 @@
             // "전체" 버튼 생성
             const allBtn = document.createElement('button');
             allBtn.className = `btn-select dong-btn ${activeDong === '전체' ? 'active' : ''}`;
-            allBtn.innerText = `전체 ${getDeliveryProgressText(aptOrders)}`;
+            allBtn.innerText = `전체 (${getUniqueCustomerCount(aptOrders)})`;
             allBtn.onclick = () => {
                 activeDong = "전체";
                 document.querySelectorAll('.dong-btn').forEach(b => b.classList.remove('active'));
@@ -1438,7 +1447,7 @@
             dongs.forEach(dong => {
                 const btn = document.createElement('button');
                 btn.className = `btn-select dong-btn ${dong === activeDong ? 'active' : ''}`;
-                btn.innerText = `${dong} ${getDeliveryProgressText(dongGroups[dong])}`;
+                btn.innerText = `${dong} (${getUniqueCustomerCount(dongGroups[dong])})`;
                 btn.onclick = () => {
                     activeDong = dong;
                     document.querySelectorAll('.dong-btn').forEach(b => b.classList.remove('active'));
@@ -1628,7 +1637,7 @@
                 if (hoNum !== 9999) {
                     hoLabel = hoNum + "호";
                 } else {
-                    hoLabel = representativeItem.addressDetail || "주소상세";
+                    hoLabel = (representativeItem.addressDetail && String(representativeItem.addressDetail) !== "undefined") ? String(representativeItem.addressDetail).trim() : "";
                 }
 
                 // 동 원본 번호 및 아파트 표시 분기
@@ -1636,10 +1645,12 @@
                 let fullDongHo = "";
                 if (activeApartment === "전체") {
                     const aptName = extractApartmentName(representativeItem.address);
-                    fullDongHo = `[${aptName}] ${rawDong ? `${rawDong}동 ` : ''}${hoLabel}`;
+                    const safeAptName = (aptName && String(aptName) !== "undefined" && String(aptName) !== "null") ? String(aptName).trim() : "";
+                    fullDongHo = `${safeAptName ? `[${safeAptName}] ` : ''}${rawDong ? `${rawDong}동 ` : ''}${hoLabel}`.trim();
                 } else {
-                    fullDongHo = rawDong ? `${rawDong}동 ${hoLabel}` : hoLabel;
+                    fullDongHo = `${rawDong ? `${rawDong}동 ` : ''}${hoLabel}`.trim();
                 }
+                if (!fullDongHo || fullDongHo === "undefined" || fullDongHo === "null") fullDongHo = "주소 미입력";
 
                 // 전화번호 포맷 정규화
                 const cleanPhone = String(customer.phone || "").replace(/\D/g, "");
@@ -1663,7 +1674,7 @@
                     const isPaidItem = origOrder && (origOrder.paid === true || origOrder.paid === "true" || origOrder.paid === "True" || origOrder.isPaid === true || origOrder.isPaid === "true");
                     return `
                         <div class="item-row" style="display: flex; justify-content: space-between; align-items: center;">
-                            <span>${it.name} ${isPaidItem ? `<span style="font-size:10px; font-weight:800; background:#e8f5e9; color:#2e7d32; padding:1px 4px; border-radius:3px; margin-left:4px;">💵 입금완료</span>` : `<span style="font-size:10px; font-weight:800; background:#fef2f2; color:#ef4444; padding:1px 4px; border-radius:3px; margin-left:4px;">🔴 미입금</span>`}</span>
+                            <span>${(it.name && String(it.name) !== "undefined" && String(it.name) !== "null") ? String(it.name).trim() : "상품"} ${isPaidItem ? `<span style="font-size:10px; font-weight:800; background:#e8f5e9; color:#2e7d32; padding:1px 4px; border-radius:3px; margin-left:4px;">💵 입금완료</span>` : `<span style="font-size:10px; font-weight:800; background:#fef2f2; color:#ef4444; padding:1px 4px; border-radius:3px; margin-left:4px;">🔴 미입금</span>`}</span>
                             <span class="item-qty">${it.qty}개</span>
                         </div>
                     `;
@@ -1675,11 +1686,11 @@
                 card.innerHTML = `
                     <div class="rider-card-header">
                         <span class="unit-number">${fullDongHo}</span>
-                        <span class="customer-name">${customer.name} 고객님</span>
+                        <span class="customer-name">${safeCustomerName} 고객님</span>
                     </div>
                     <div class="rider-card-body">
-                        <div class="address-text">${representativeItem.address} ${representativeItem.addressDetail}</div>
-                        ${customer.entrance ? `
+                        <div class="address-text">${fullAddressDisplay}</div>
+                        ${(customer.entrance && String(customer.entrance) !== "undefined" && String(customer.entrance) !== "null") ? `
                             <div class="address-box" style="background:#eff6ff; border:1px solid #bfdbfe; color:#1d4ed8;">
                                 🚪 공동현관 입력값: <b>${customer.entrance}</b>
                             </div>
@@ -1852,7 +1863,8 @@
                                 Object.keys(cData).forEach(okey => {
                                     const it = cData[okey];
                                     const isCanceled = (it.canceled === true || it.canceled === "true" || String(it.canceled).toUpperCase() === "TRUE");
-                                    if (!isCanceled) allKeysToPatch.add(okey);
+                                    const isDelivery = (it.shippingMethod === '배달주문' || (it.shippingMethod !== '매장픽업' && it.address && String(it.address).trim() !== ""));
+                                    if (!isCanceled && isDelivery) allKeysToPatch.add(okey);
                                 });
                             }
                         }
