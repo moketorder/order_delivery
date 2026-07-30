@@ -405,11 +405,15 @@
             color: #1e293b;
             display: flex;
             justify-content: space-between;
+            align-items: center;
+            gap: 8px;
         }
 
         .item-qty {
             color: var(--secondary);
             font-weight: 850;
+            white-space: nowrap;
+            flex-shrink: 0;
         }
 
         /* 카드 하단 액션 바 */
@@ -691,7 +695,37 @@
         let entrancePasswords = {}; // 공동현관 비밀번호 로컬 캐시
         let isInitialLoad = true;
 
-        // 고객 카드 갯수(고유 전화번호 수) 계산 헬퍼 (전역)
+        // 고객 카드 배달 완료 수 / 전체 수 (예: "(완료수/전체수)") 표기 헬퍼
+        function getDeliveryProgressText(ordersList) {
+            if (!ordersList || ordersList.length === 0) return "(0/0)";
+
+            const customerMap = {};
+            ordersList.forEach(item => {
+                const cleanPhone = String(item.phone || "").replace(/\D/g, "");
+                if (!cleanPhone) return;
+
+                if (!customerMap[cleanPhone]) {
+                    customerMap[cleanPhone] = [];
+                }
+                customerMap[cleanPhone].push(item);
+            });
+
+            const total = Object.keys(customerMap).length;
+            let completed = 0;
+
+            Object.values(customerMap).forEach(items => {
+                const isAllDelivered = items.every(it => {
+                    const isDelivered = (it.delivered === true || it.delivered === "true" || String(it.delivered).toUpperCase() === "TRUE" || it.status === "배달완료");
+                    return isDelivered;
+                });
+                if (isAllDelivered) {
+                    completed++;
+                }
+            });
+
+            return `(${completed}/${total})`;
+        }
+
         function getUniqueCustomerCount(ordersList) {
             if (!ordersList) return 0;
             const uniquePhones = new Set();
@@ -937,14 +971,41 @@
 
                 rawOrders = [];
                 for (const phone in data) {
-                    for (const orderKey in data[phone]) {
-                        const it = data[phone][orderKey];
+                    // 고객별 주문 중 배달주문 주소가 존재하는지 판별
+                    const customerOrdersObj = data[phone] || {};
+                    let customerAddress = "";
+                    let customerEntrance = "";
+                    let hasDeliveryOrder = false;
 
+                    for (const oKey in customerOrdersObj) {
+                        const it = customerOrdersObj[oKey];
                         const isCanceled = (it.canceled === true || it.canceled === "true" || String(it.canceled).toUpperCase() === "TRUE");
-                        if (isCanceled) continue; // 취소 건 제외
-                        // 배달 주문만 필터링 (수령방법이 배달주문이거나, 수령방법이 매장픽업이 아닌데 주소가 써있을 때)
-                        const isDelivery = (it.shippingMethod === '배달주문' || (it.shippingMethod !== '매장픽업' && it.address && String(it.address).trim() !== ""));
-                        if (!isDelivery) continue;
+                        if (isCanceled) continue;
+
+                        if (it.address && String(it.address).trim() !== "") {
+                            customerAddress = it.address;
+                            if (it.addressDetail) customerAddress += " " + it.addressDetail;
+                        }
+                        if (it.entrance) customerEntrance = it.entrance;
+                        if (it.shippingMethod === '배달주문' || (it.address && String(it.address).trim() !== "")) {
+                            hasDeliveryOrder = true;
+                        }
+                    }
+
+                    if (!hasDeliveryOrder) continue; // 배달 관련 주문이 없으면 제외
+
+                    for (const orderKey in customerOrdersObj) {
+                        const it = customerOrdersObj[orderKey];
+                        const isCanceled = (it.canceled === true || it.canceled === "true" || String(it.canceled).toUpperCase() === "TRUE");
+                        if (isCanceled) continue;
+
+                        // 주소가 없는 상품 항목도 고객 대표 배달 주소를 복사하여 배달 목록에 함께 노출
+                        if (!it.address && customerAddress) {
+                            it.address = customerAddress;
+                        }
+                        if (!it.entrance && customerEntrance) {
+                            it.entrance = customerEntrance;
+                        }
 
                         const isDelivered = (it.delivered === true || it.delivered === "true" || String(it.delivered).toUpperCase() === "TRUE");
                         const isStocked = (it.isStocked === true || it.isStocked === "true" || String(it.isStocked).toUpperCase() === "TRUE");
@@ -954,6 +1015,7 @@
                         else if (isStocked) calculatedStatus = "입고";
 
                         rawOrders.push({
+                            firebasePhoneKey: phone,
                             phone,
                             orderKey,
                             ...it,
@@ -1287,7 +1349,7 @@
             // "전체" 아파트 버튼 생성
             const allAptBtn = document.createElement('button');
             allAptBtn.className = `btn-select apt-btn ${activeApartment === '전체' ? 'active' : ''}`;
-            allAptBtn.innerText = `전체 (${getUniqueCustomerCount(filtered)})`;
+            allAptBtn.innerText = `전체 ${getDeliveryProgressText(filtered)}`;
             allAptBtn.onclick = () => {
                 activeApartment = "전체";
                 activeDong = "전체";
@@ -1302,7 +1364,7 @@
             apartments.forEach(apt => {
                 const btn = document.createElement('button');
                 btn.className = `btn-select apt-btn ${apt === activeApartment ? 'active' : ''}`;
-                btn.innerText = `${apt} (${getUniqueCustomerCount(aptGroups[apt])})`;
+                btn.innerText = `${apt} ${getDeliveryProgressText(aptGroups[apt])}`;
                 btn.onclick = () => {
                     activeApartment = apt;
                     activeDong = "전체"; // 아파트 변경 시 동을 "전체"로 설정
@@ -1364,7 +1426,7 @@
             // "전체" 버튼 생성
             const allBtn = document.createElement('button');
             allBtn.className = `btn-select dong-btn ${activeDong === '전체' ? 'active' : ''}`;
-            allBtn.innerText = `전체 (${getUniqueCustomerCount(aptOrders)})`;
+            allBtn.innerText = `전체 ${getDeliveryProgressText(aptOrders)}`;
             allBtn.onclick = () => {
                 activeDong = "전체";
                 document.querySelectorAll('.dong-btn').forEach(b => b.classList.remove('active'));
@@ -1376,7 +1438,7 @@
             dongs.forEach(dong => {
                 const btn = document.createElement('button');
                 btn.className = `btn-select dong-btn ${dong === activeDong ? 'active' : ''}`;
-                btn.innerText = `${dong} (${getUniqueCustomerCount(dongGroups[dong])})`;
+                btn.innerText = `${dong} ${getDeliveryProgressText(dongGroups[dong])}`;
                 btn.onclick = () => {
                     activeDong = dong;
                     document.querySelectorAll('.dong-btn').forEach(b => b.classList.remove('active'));
@@ -1695,17 +1757,37 @@
                 };
 
                 orderKeys.forEach(orderKey => {
-                    const url = `${FIREBASE_DB_URL}orders/${cleanPhone}/${orderKey}.json`;
-                    promises.push(
-                        fetch(url, {
-                            method: 'PATCH',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(patchBody)
-                        })
-                    );
+                    const target = rawOrders.find(it => it.orderKey === orderKey);
+                    const targetPhones = new Set([cleanPhone]);
+                    if (phone) targetPhones.add(String(phone).trim());
+                    if (target && target.phone) targetPhones.add(String(target.phone).trim());
+                    if (target && target.firebasePhoneKey) targetPhones.add(String(target.firebasePhoneKey).trim());
+
+                    targetPhones.forEach(pKey => {
+                        const url = `${FIREBASE_DB_URL}orders/${encodeURIComponent(pKey)}/${orderKey}.json`;
+                        promises.push(
+                            fetch(url, {
+                                method: 'PATCH',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify(patchBody)
+                            })
+                        );
+                    });
                 });
 
                 await Promise.all(promises);
+
+                // 로컬 메모리 rawOrders 및 UI 즉시 회색 전환
+                orderKeys.forEach(orderKey => {
+                    const targets = rawOrders.filter(it => it.orderKey === orderKey || (String(it.phone).replace(/\D/g, "") === cleanPhone && it.orderKey === orderKey));
+                    targets.forEach(t => {
+                        Object.assign(t, patchBody);
+                        t.status = "배달완료";
+                        t.delivered = true;
+                    });
+                });
+                renderFilteredData();
+
                 showToast("배달 완료 처리되었습니다.");
 
                 // 완료 메시지 발송 모달/연동 호출
@@ -1718,7 +1800,7 @@
                     window.location.href = smsUrl;
                 }, 800);
 
-                await loadData(true);
+                await loadData(false);
             } catch (e) {
                 console.error(e);
                 showToast("오류가 발생했습니다.");
@@ -1740,7 +1822,7 @@
         // 배달 완료 사진 업로드 처리 (여러 주문 일괄 처리)
         async function handleDeliveryPhotoUpload(event) {
             const file = event.target.files[0];
-            if (!file || !activeUploadPhone || !activeUploadKeys || activeUploadKeys.length === 0) return;
+            if (!file || !activeUploadPhone) return;
             showLoader("사진 압축 및 업로드 중...");
             try {
                 const compressedBase64 = await resizeAndCompressImage(file);
@@ -1756,27 +1838,63 @@
                     deliveryPhotoTime: Date.now()
                 };
 
-                const promises = [];
-                activeUploadKeys.forEach(orderKey => {
-                    const url = `${FIREBASE_DB_URL}orders/${cleanPhone}/${orderKey}.json`;
-                    const p = fetch(url, {
-                        method: 'PATCH',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(patchBody)
-                    }).then(async (res) => {
-                        if (!res.ok) throw new Error("Firebase 전송 실패");
+                const targetPhones = new Set([cleanPhone]);
+                if (activeUploadPhone) targetPhones.add(String(activeUploadPhone).trim());
 
-                        // 실제 이미지 데이터는 delivery_photos 노드에 별도 저장
-                        await fetch(`${FIREBASE_DB_URL}delivery_photos/${cleanPhone}/${orderKey}.json`, {
-                            method: 'PUT',
+                const allKeysToPatch = new Set(activeUploadKeys || []);
+
+                for (const pKey of targetPhones) {
+                    try {
+                        const res = await fetch(`${FIREBASE_DB_URL}orders/${encodeURIComponent(pKey)}.json`);
+                        if (res.ok) {
+                            const cData = await res.json();
+                            if (cData && typeof cData === 'object') {
+                                Object.keys(cData).forEach(okey => {
+                                    const it = cData[okey];
+                                    const isCanceled = (it.canceled === true || it.canceled === "true" || String(it.canceled).toUpperCase() === "TRUE");
+                                    if (!isCanceled) allKeysToPatch.add(okey);
+                                });
+                            }
+                        }
+                    } catch(e) {}
+                }
+
+                const promises = [];
+                allKeysToPatch.forEach(orderKey => {
+                    targetPhones.forEach(pKey => {
+                        const url = `${FIREBASE_DB_URL}orders/${encodeURIComponent(pKey)}/${orderKey}.json`;
+                        const p = fetch(url, {
+                            method: 'PATCH',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ photo: compressedBase64 })
+                            body: JSON.stringify(patchBody)
+                        }).then(async (res) => {
+                            if (!res.ok) throw new Error("Firebase 전송 실패");
+
+                            // 실제 이미지 데이터는 delivery_photos 노드에 별도 저장
+                            await fetch(`${FIREBASE_DB_URL}delivery_photos/${encodeURIComponent(pKey)}/${orderKey}.json`, {
+                                method: 'PUT',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ photo: compressedBase64 })
+                            });
                         });
+                        promises.push(p);
                     });
-                    promises.push(p);
                 });
 
                 await Promise.all(promises);
+
+                // 로컬 메모리 rawOrders 및 UI 즉시 회색 전환
+                rawOrders.forEach(t => {
+                    if (String(t.phone || "").replace(/\D/g, "") === cleanPhone) {
+                        Object.assign(t, patchBody);
+                        t.status = "배달완료";
+                        t.delivered = true;
+                        t.deliveryPhotoExists = true;
+                        t.deliveryPhoto = compressedBase64;
+                    }
+                });
+                renderFilteredData();
+
                 showToast("배달 사진이 업로드되었으며, 배달 완료 처리되었습니다.");
 
                 // 완료 메시지 발송 모달/연동 호출
@@ -1794,7 +1912,7 @@
                     window.location.href = smsUrl;
                 }, 800);
 
-                await loadData(true);
+                await loadData(false);
             } catch (e) {
                 console.error(e);
                 showToast("사진 업로드 실패");
@@ -1884,6 +2002,14 @@
 
         window.onload = function () {
             loadData();
+            document.addEventListener("visibilitychange", () => {
+                if (document.visibilityState === "visible") {
+                    loadData(false);
+                }
+            });
+            window.addEventListener("pageshow", () => {
+                loadData(false);
+            });
         };
     </script>
 </body>
