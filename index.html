@@ -928,8 +928,32 @@
                     rawOrders = [];
                     for (const phone in data) {
                         if (!data[phone] || typeof data[phone] !== 'object') continue;
-                        for (const orderKey in data[phone]) {
-                            const it = data[phone][orderKey];
+
+                        const customerOrdersObj = data[phone] || {};
+                        let customerAddress = "";
+                        let customerEntrance = "";
+                        let hasDeliveryOrder = false;
+
+                        for (const oKey in customerOrdersObj) {
+                            const it = customerOrdersObj[oKey];
+                            if (!it || typeof it !== 'object') continue;
+                            const isCanceled = (it.canceled === true || it.canceled === "true" || String(it.canceled).toUpperCase() === "TRUE");
+                            if (isCanceled) continue;
+
+                            if (it.address && String(it.address).trim() !== "") {
+                                customerAddress = it.address;
+                                if (it.addressDetail) customerAddress += " " + it.addressDetail;
+                            }
+                            if (it.entrance) customerEntrance = it.entrance;
+                            if (it.shippingMethod === '배달주문' || (it.address && String(it.address).trim() !== "")) {
+                                hasDeliveryOrder = true;
+                            }
+                        }
+
+                        if (!hasDeliveryOrder) continue;
+
+                        for (const orderKey in customerOrdersObj) {
+                            const it = customerOrdersObj[orderKey];
                             if (!it || typeof it !== 'object') continue;
 
                             // 필수 필드인 상품명(item)이 없으면 주문 항목이 아니므로 제외
@@ -937,6 +961,15 @@
 
                             const isCanceled = (it.canceled === true || it.canceled === "true" || String(it.canceled).toUpperCase() === "TRUE");
                             if (isCanceled) continue;
+
+                            // 주소가 없는 상품 항목도 고객 대표 배달 주소를 복사하여 배달 목록에 함께 노출
+                            if (!it.address && customerAddress) {
+                                it.address = customerAddress;
+                            }
+                            if (!it.entrance && customerEntrance) {
+                                it.entrance = customerEntrance;
+                            }
+
                             const isDelivery = (it.shippingMethod === '배달주문' || (it.shippingMethod !== '매장픽업' && it.address && String(it.address).trim() !== ""));
                             if (!isDelivery) continue;
 
@@ -1054,6 +1087,9 @@
                         if (!it.entrance && customerEntrance) {
                             it.entrance = customerEntrance;
                         }
+
+                        const isDelivery = (it.shippingMethod === '배달주문' || (it.shippingMethod !== '매장픽업' && it.address && String(it.address).trim() !== ""));
+                        if (!isDelivery) continue;
 
                         const isDelivered = (it.delivered === true || it.delivered === "true" || String(it.delivered).toUpperCase() === "TRUE");
                         const isStocked = (it.isStocked === true || it.isStocked === "true" || String(it.isStocked).toUpperCase() === "TRUE");
@@ -1974,22 +2010,6 @@
 
                 const allKeysToPatch = new Set(activeUploadKeys || []);
 
-                for (const pKey of targetPhones) {
-                    try {
-                        const res = await fetch(`${FIREBASE_DB_URL}orders/${encodeURIComponent(pKey)}.json`);
-                        if (res.ok) {
-                            const cData = await res.json();
-                            if (cData && typeof cData === 'object') {
-                                Object.keys(cData).forEach(okey => {
-                                    const it = cData[okey];
-                                    const isCanceled = (it.canceled === true || it.canceled === "true" || String(it.canceled).toUpperCase() === "TRUE");
-                                    if (!isCanceled) allKeysToPatch.add(okey);
-                                });
-                            }
-                        }
-                    } catch(e) {}
-                }
-
                 const promises = [];
                 allKeysToPatch.forEach(orderKey => {
                     targetPhones.forEach(pKey => {
@@ -2016,7 +2036,7 @@
 
                 // 로컬 메모리 rawOrders 및 UI 즉시 회색 전환
                 rawOrders.forEach(t => {
-                    if (normalizePhoneNumber(t.phone) === cleanPhone) {
+                    if (normalizePhoneNumber(t.phone) === cleanPhone && allKeysToPatch.has(t.orderKey)) {
                         Object.assign(t, patchBody);
                         t.status = "배달완료";
                         t.delivered = true;
