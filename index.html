@@ -626,11 +626,14 @@
     </div>
 
     <div class="container">
-        <!-- 월 필터 드롭다운 -->
-        <div style="margin-bottom: 8px;">
-            <select id="month-select" class="select-dropdown" onchange="handleMonthChange(this.value)">
+        <!-- 월 필터 및 배달 완료 여부 토글 버튼 -->
+        <div style="margin-bottom: 8px; display: flex; gap: 8px; align-items: center;">
+            <select id="month-select" class="select-dropdown" onchange="handleMonthChange(this.value)" style="flex: 1; min-width: 0;">
                 <!-- 동적 로드 -->
             </select>
+            <button id="delivery-status-filter-btn" onclick="cycleDeliveryStatusFilter()" class="btn-select" style="height: 42px; padding: 0 16px; font-size: 14px; font-weight: 800; border-radius: var(--radius-sub); white-space: nowrap; flex-shrink: 0; display: flex; align-items: center; justify-content: center; background: #3b82f6; color: white; border: none; box-shadow: var(--shadow); transition: var(--transition);">
+                🔄 전체
+            </button>
         </div>
         <!-- 날짜 필터 탭 -->
         <div class="date-tabs-container" id="date-tabs">
@@ -645,11 +648,6 @@
                     <option value="week">📅 주</option>
                     <option value="month">📅 월</option>
                     <option value="all">📅 전체</option>
-                </select>
-                <select id="filterStatus" class="select-filter" style="width: 90px; min-width: 90px; flex-shrink: 0; padding: 10px 4px; border: 1.5px solid #cbd5e1; border-radius: var(--radius-sub); font-size: 13px; font-weight: 700; background: white; outline: none;" onchange="handleFilterChange()">
-                    <option value="all" selected>📦 전체</option>
-                    <option value="incomplete">🚚 미완료</option>
-                    <option value="completed">✅ 완료</option>
                 </select>
                 <div style="position: relative; flex: 1; min-width: 0;">
                     <input type="text" id="searchInput" class="search-input" placeholder="고객명, 연락처, 호수, 상품명 검색..." onkeyup="handleSearchInput()">
@@ -699,6 +697,7 @@
         let rawOrders = [];
         let entrancePasswords = {}; // 공동현관 비밀번호 로컬 캐시
         let isInitialLoad = true;
+        let currentStatusFilter = "all"; // "all", "incomplete", "completed"
 
         // 고객 카드 배달 완료 수 / 전체 수 (예: "(완료수/전체수)") 표기 헬퍼
         function getDeliveryProgressText(ordersList) {
@@ -874,7 +873,8 @@
             if (match) {
                 return new Date(parseInt(match[1]), parseInt(match[2]) - 1, parseInt(match[3]));
             }
-            return new Date(tsStr);
+            const resDate = new Date(tsStr);
+            return isNaN(resDate.getTime()) ? new Date(0) : resDate;
         }
 
         function getOrderDateInfo(item) {
@@ -916,8 +916,10 @@
 
                     rawOrders = [];
                     for (const phone in data) {
+                        if (!data[phone] || typeof data[phone] !== 'object') continue;
                         for (const orderKey in data[phone]) {
                             const it = data[phone][orderKey];
+                            if (!it || typeof it !== 'object') continue;
 
                             const isCanceled = (it.canceled === true || it.canceled === "true" || String(it.canceled).toUpperCase() === "TRUE");
                             if (isCanceled) continue;
@@ -932,7 +934,18 @@
                                 }
                             }
 
-                            rawOrders.push(it);
+                            const isStocked = (it.isStocked === true || it.isStocked === "true" || String(it.isStocked).toUpperCase() === "TRUE");
+                            let calculatedStatus = "대기";
+                            if (isDelivered) calculatedStatus = "배달완료";
+                            else if (isStocked) calculatedStatus = "입고";
+
+                            rawOrders.push({
+                                firebasePhoneKey: phone,
+                                phone,
+                                orderKey,
+                                ...it,
+                                status: calculatedStatus
+                            });
                         }
                     }
                     console.log("배달 주문 로컬 캐시 데이터 즉시 표시 완료");
@@ -965,19 +978,29 @@
                 const data = await response.json() || {};
 
                 // 캐시 업데이트
-                localStorage.setItem('moket_orders_cache', JSON.stringify(data));
+                try {
+                    localStorage.setItem('moket_orders_cache', JSON.stringify(data));
+                } catch (cacheErr) {
+                    console.warn("로컬 스토리지 캐시 저장 실패 (용량 초과 가능성):", cacheErr);
+                }
 
                 if (pwdRes && pwdRes.ok) {
                     entrancePasswords = await pwdRes.json() || {};
-                    localStorage.setItem('moket_entrance_passwords_cache', JSON.stringify(entrancePasswords));
+                    try {
+                        localStorage.setItem('moket_entrance_passwords_cache', JSON.stringify(entrancePasswords));
+                    } catch (pwdCacheErr) {
+                        console.warn("비밀번호 캐시 저장 실패:", pwdCacheErr);
+                    }
                 } else {
                     entrancePasswords = {};
                 }
 
                 rawOrders = [];
                 for (const phone in data) {
+                    if (!data[phone] || typeof data[phone] !== 'object') continue;
                     for (const orderKey in data[phone]) {
                         const it = data[phone][orderKey];
+                        if (!it || typeof it !== 'object') continue;
 
                         const isCanceled = (it.canceled === true || it.canceled === "true" || String(it.canceled).toUpperCase() === "TRUE");
                         if (isCanceled) continue; // 취소 건 제외
@@ -1286,9 +1309,8 @@
                 });
             }
 
-            // 3단계: 배달 완료/미완료 상태 드롭다운 필터링
-            const filterStatusEl = document.getElementById('filterStatus');
-            const filterStatus = filterStatusEl ? filterStatusEl.value : 'all';
+            // 3단계: 배달 완료/미완료 상태 토글 필터링
+            const filterStatus = currentStatusFilter;
 
             if (filterStatus !== 'all') {
                 const customerCompletionMap = {};
@@ -2010,6 +2032,28 @@
             setTimeout(() => {
                 toast.classList.remove("show");
             }, 2500);
+        }
+
+        // 배달 완료 여부 필터 순환 변경 함수
+        function cycleDeliveryStatusFilter() {
+            const btn = document.getElementById('delivery-status-filter-btn');
+            if (!btn) return;
+            
+            if (currentStatusFilter === "all") {
+                currentStatusFilter = "incomplete";
+                btn.innerText = "🔴 미완료";
+                btn.style.background = "var(--red)";
+            } else if (currentStatusFilter === "incomplete") {
+                currentStatusFilter = "completed";
+                btn.innerText = "🟢 완료";
+                btn.style.background = "var(--primary)";
+            } else {
+                currentStatusFilter = "all";
+                btn.innerText = "🔄 전체";
+                btn.style.background = "var(--blue)";
+            }
+            
+            renderFilteredData();
         }
 
         window.onload = function () {
