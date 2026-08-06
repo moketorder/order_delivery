@@ -1819,7 +1819,9 @@
                 }).join('');
 
                 // 묶음 주문의 모든 orderKey들을 쉼표로 연결하여 액션 파라미터로 넘김
-                const orderKeysStr = customer.orders.map(o => o.orderKey).join(',');
+                // [버그수정] 상품명에 쉼표(,)가 있으면 orderKey에 쉼표가 포함됨 → 쉼표 join/split 시 키가 쪼개져
+                // 엉뚱한 유령 키에 PATCH되고 실제 주문은 미처리됨. 상품명에 없는 '|@@|'로 구분(주문관리.html과 동일).
+                const orderKeysStr = customer.orders.map(o => o.orderKey).join('|@@|');
 
                 card.innerHTML = `
                     <div class="rider-card-header">
@@ -1842,9 +1844,9 @@
                             <div class="photo-thumbnail-container">
                                 <span style="font-size:11px; font-weight:800; color:var(--primary);">📸 배달 완료 사진:</span>
                                 ${customer.deliveryPhoto ? `
-                                    <img src="${customer.deliveryPhoto}" class="photo-thumbnail" onclick="viewDeliveryPhoto('${customer.phone}_${customer.orders[0].orderKey}', '${customer.deliveryPhoto}')">
+                                    <img src="${customer.deliveryPhoto}" class="photo-thumbnail" onclick="viewDeliveryPhotoRemote('${customer.phone}', '${encAttr(customer.orders[0].orderKey)}')">
                                 ` : `
-                                    <button class="btn-action-sm" style="font-size: 11px; padding: 4px 8px; cursor: pointer; border-radius: 4px; border: 1.5px solid var(--primary); background: #f0fdf4; color: var(--primary); font-weight: bold; height: auto; width: auto; line-height: 1.2;" onclick="viewDeliveryPhotoRemote('${customer.phone}', '${customer.orders[0].orderKey}')">보기 (클릭)</button>
+                                    <button class="btn-action-sm" style="font-size: 11px; padding: 4px 8px; cursor: pointer; border-radius: 4px; border: 1.5px solid var(--primary); background: #f0fdf4; color: var(--primary); font-weight: bold; height: auto; width: auto; line-height: 1.2;" onclick="viewDeliveryPhotoRemote('${customer.phone}', '${encAttr(customer.orders[0].orderKey)}')">보기 (클릭)</button>
                                 `}
                             </div>
                         ` : ''}
@@ -1852,8 +1854,8 @@
                     <div class="rider-card-footer no-print">
                         <a href="tel:${cleanPhone}" class="btn-action btn-call">📞 전화</a>
                         <a href="sms:${cleanPhone}" class="btn-action btn-sms">💬 문자</a>
-                        <button class="btn-action btn-photo" onclick="triggerCameraUpload('${customer.phone}', '${orderKeysStr}', '${customer.name}')">📸 사진업로드</button>
-                        <button class="btn-action btn-complete" onclick="markAsDelivered('${customer.phone}', '${orderKeysStr}', '${customer.name}')">🚚 배달완료</button>
+                        <button class="btn-action btn-photo" onclick="triggerCameraUpload('${customer.phone}', '${encAttr(orderKeysStr)}', '${encAttr(customer.name)}')">📸 사진업로드</button>
+                        <button class="btn-action btn-complete" onclick="markAsDelivered('${customer.phone}', '${encAttr(orderKeysStr)}', '${encAttr(customer.name)}')">🚚 배달완료</button>
                     </div>
                 `;
                 listContainer.appendChild(card);
@@ -1891,11 +1893,17 @@
         }
 
         // 단순 배달 완료 처리 (여러 주문 일괄 처리)
+        // [신규] onclick 속성에 문자열을 안전하게 담기 위한 인코딩(따옴표/쉼표/특수문자 대응). 핸들러에서 decodeURIComponent로 복원.
+        function encAttr(s){ return encodeURIComponent(String(s == null ? '' : s)).replace(/'/g, '%27'); }
+        function decAttr(s){ try { return decodeURIComponent(String(s == null ? '' : s)); } catch(e){ return String(s == null ? '' : s); } }
+
         async function markAsDelivered(phone, orderKeysStr, customerName) {
+            orderKeysStr = decAttr(orderKeysStr);
+            customerName = decAttr(customerName);
             if (!confirm("배달 완료 처리하시겠습니까?")) return;
             showLoader("배달 완료 처리 중...");
             const cleanPhone = normalizePhoneNumber(phone);
-            const orderKeys = orderKeysStr.split(",");
+            const orderKeys = orderKeysStr.split("|@@|");
             try {
                 const promises = [];
                 const patchBody = {
@@ -1980,8 +1988,10 @@
         let activeUploadKeys = [];
         let activeUploadCustomerName = "";
         function triggerCameraUpload(phone, orderKeysStr, customerName) {
+            orderKeysStr = decAttr(orderKeysStr);
+            customerName = decAttr(customerName);
             activeUploadPhone = phone;
-            activeUploadKeys = orderKeysStr.split(",");
+            activeUploadKeys = orderKeysStr.split("|@@|");
             activeUploadCustomerName = customerName;
             document.getElementById('camera-input').click();
         }
@@ -2083,6 +2093,7 @@
 
         // 사진 팝업 모달
         async function viewDeliveryPhotoRemote(phone, orderKey) {
+            orderKey = decAttr(orderKey);
             const photoKey = phone + "_" + orderKey;
             let photoData = window.deliveryPhotos ? window.deliveryPhotos[photoKey] : null;
             if (!photoData) {
