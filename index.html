@@ -798,7 +798,13 @@
             if (!address) return "";
             const normalized = String(address).replace(/\s+/g, "");
 
-            if (normalized.includes("선동433")) return "푸르지오";
+            // 푸르지오 1차/2차 구분: 1차=망월동(미사강변대로 165), 2차=선동(선동 433)
+            const puChasu = normalized.includes("2차") ? "2차"
+                          : normalized.includes("1차") ? "1차"
+                          : normalized.includes("선동433") ? "2차"
+                          : "";
+
+            if (normalized.includes("선동433")) return "푸르지오2차";
             if (normalized.includes("선동436")) return "더샵";
             if (normalized.includes("선동427")) return "자이";
             if (normalized.includes("선동430")) return "리버뷰자이";
@@ -819,6 +825,7 @@
             for (const keyword of keywords) {
                 if (normalized.includes(keyword)) {
                     if (keyword === "이편한" || keyword === "e편한") return "e편한세상";
+                    if (keyword === "푸르지오") return "푸르지오" + puChasu; // 1차/2차 표기
                     return keyword;
                 }
             }
@@ -1471,7 +1478,7 @@
             const aptContainer = document.getElementById('apartment-buttons');
             aptContainer.innerHTML = '';
 
-            const customOrder = ["푸르지오", "센트리버", "리버나인", "더샵", "더샾", "칸타빌"];
+            const customOrder = ["푸르지오1차", "푸르지오2차", "푸르지오", "센트리버", "리버나인", "더샵", "더샾", "칸타빌"];
             const apartments = Object.keys(aptGroups).sort((a, b) => {
                 if (a === "기타") return 1;
                 if (b === "기타") return -1;
@@ -1661,7 +1668,7 @@
 
             // 정렬 처리
             if (activeApartment === "전체") {
-                const customOrder = ["푸르지오", "센트리버", "리버나인", "더샵", "더샾", "칸타빌"];
+                const customOrder = ["푸르지오1차", "푸르지오2차", "푸르지오", "센트리버", "리버나인", "더샵", "더샾", "칸타빌"];
                 const getAptWeight = (name) => {
                     if (name === "기타") return 9999;
                     const idx = customOrder.indexOf(name);
@@ -1915,39 +1922,20 @@
 
                 orderKeys.forEach(orderKey => {
                     const target = rawOrders.find(it => it.orderKey === orderKey);
-                    const targetPhones = new Set();
-                    if (phone) targetPhones.add(normalizePhoneNumber(phone));
-                    if (target && target.phone) targetPhones.add(normalizePhoneNumber(target.phone));
-                    if (target && target.firebasePhoneKey) targetPhones.add(normalizePhoneNumber(target.firebasePhoneKey));
-
-                    // 추가적으로 원본 포맷 및 82 국가코드 대응 추가
-                    if (phone) {
-                        targetPhones.add(String(phone).trim());
-                        targetPhones.add(String(phone).replace(/\D/g, ""));
-                        const norm = normalizePhoneNumber(phone);
-                        if (norm.startsWith("010")) {
-                            targetPhones.add("82" + norm.slice(1));
-                        }
-                    }
-                    if (target && target.phone) {
-                        targetPhones.add(String(target.phone).trim());
-                        targetPhones.add(String(target.phone).replace(/\D/g, ""));
-                        const norm = normalizePhoneNumber(target.phone);
-                        if (norm.startsWith("010")) {
-                            targetPhones.add("82" + norm.slice(1));
-                        }
-                    }
-
-                    targetPhones.forEach(pKey => {
-                        const url = `${FIREBASE_DB_URL}orders/${encodeURIComponent(pKey)}/${orderKey}.json`;
-                        promises.push(
-                            fetch(url, {
-                                method: 'PATCH',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify(patchBody)
-                            })
-                        );
-                    });
+                    // [버그수정] 여러 전화번호 변형(정규화·숫자만·82붙임 등)에 전부 PATCH하면, 실제 주문이 없는
+                    // 변형 경로마다 상태 플래그만 있는 '유령 주문'이 새로 생성됨. 실제 저장 노드 키(firebasePhoneKey)
+                    // 한 곳에만 PATCH해서 유령 생성을 원천 차단 (target 없으면 정규화 번호로 폴백).
+                    const pKey = (target && target.firebasePhoneKey) ? String(target.firebasePhoneKey).trim()
+                               : (target && target.phone) ? normalizePhoneNumber(target.phone)
+                               : cleanPhone;
+                    const url = `${FIREBASE_DB_URL}orders/${encodeURIComponent(pKey)}/${encodeURIComponent(orderKey)}.json`;
+                    promises.push(
+                        fetch(url, {
+                            method: 'PATCH',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(patchBody)
+                        })
+                    );
                 });
 
                 await Promise.all(promises);
@@ -2015,39 +2003,32 @@
                     deliveryPhotoTime: Date.now()
                 };
 
-                const targetPhones = new Set();
-                if (activeUploadPhone) {
-                    targetPhones.add(normalizePhoneNumber(activeUploadPhone));
-                    targetPhones.add(String(activeUploadPhone).trim());
-                    targetPhones.add(String(activeUploadPhone).replace(/\D/g, ""));
-                    const norm = normalizePhoneNumber(activeUploadPhone);
-                    if (norm.startsWith("010")) {
-                        targetPhones.add("82" + norm.slice(1));
-                    }
-                }
-
                 const allKeysToPatch = new Set(activeUploadKeys || []);
 
                 const promises = [];
                 allKeysToPatch.forEach(orderKey => {
-                    targetPhones.forEach(pKey => {
-                        const url = `${FIREBASE_DB_URL}orders/${encodeURIComponent(pKey)}/${orderKey}.json`;
-                        const p = fetch(url, {
-                            method: 'PATCH',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(patchBody)
-                        }).then(async (res) => {
-                            if (!res.ok) throw new Error("Firebase 전송 실패");
+                    // [버그수정] 여러 전화번호 변형에 전부 PATCH하면 없는 경로마다 유령이 생김.
+                    // 실제 저장 노드 키(firebasePhoneKey) 한 곳에만 PATCH (target 없으면 정규화 번호 폴백).
+                    const target = rawOrders.find(it => it.orderKey === orderKey);
+                    const pKey = (target && target.firebasePhoneKey) ? String(target.firebasePhoneKey).trim()
+                               : (target && target.phone) ? normalizePhoneNumber(target.phone)
+                               : cleanPhone;
+                    const url = `${FIREBASE_DB_URL}orders/${encodeURIComponent(pKey)}/${encodeURIComponent(orderKey)}.json`;
+                    const p = fetch(url, {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(patchBody)
+                    }).then(async (res) => {
+                        if (!res.ok) throw new Error("Firebase 전송 실패");
 
-                            // 실제 이미지 데이터는 delivery_photos 노드에 별도 저장
-                            await fetch(`${FIREBASE_DB_URL}delivery_photos/${encodeURIComponent(pKey)}/${orderKey}.json`, {
-                                method: 'PUT',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ photo: compressedBase64 })
-                            });
+                        // 실제 이미지 데이터는 delivery_photos 노드에 별도 저장
+                        await fetch(`${FIREBASE_DB_URL}delivery_photos/${encodeURIComponent(pKey)}/${encodeURIComponent(orderKey)}.json`, {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ photo: compressedBase64 })
                         });
-                        promises.push(p);
                     });
+                    promises.push(p);
                 });
 
                 await Promise.all(promises);
