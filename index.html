@@ -804,7 +804,7 @@
                           : normalized.includes("선동433") ? "2차"
                           : "";
 
-            if (normalized.includes("선동433")) return "푸르지오2차";
+            if (normalized.includes("선동433")) return "푸지2차";
             if (normalized.includes("선동436")) return "더샵";
             if (normalized.includes("선동427")) return "자이";
             if (normalized.includes("선동430")) return "리버뷰자이";
@@ -825,7 +825,7 @@
             for (const keyword of keywords) {
                 if (normalized.includes(keyword)) {
                     if (keyword === "이편한" || keyword === "e편한") return "e편한세상";
-                    if (keyword === "푸르지오") return "푸르지오" + puChasu; // 1차/2차 표기
+                    if (keyword === "푸르지오") return puChasu ? ("푸지" + puChasu) : "푸르지오"; // 푸지1차/푸지2차 표기
                     return keyword;
                 }
             }
@@ -1478,7 +1478,7 @@
             const aptContainer = document.getElementById('apartment-buttons');
             aptContainer.innerHTML = '';
 
-            const customOrder = ["푸르지오1차", "푸르지오2차", "푸르지오", "센트리버", "리버나인", "더샵", "더샾", "칸타빌"];
+            const customOrder = ["푸지1차", "푸지2차", "푸르지오", "센트리버", "리버나인", "더샵", "더샾", "칸타빌"];
             const apartments = Object.keys(aptGroups).sort((a, b) => {
                 if (a === "기타") return 1;
                 if (b === "기타") return -1;
@@ -1668,7 +1668,7 @@
 
             // 정렬 처리
             if (activeApartment === "전체") {
-                const customOrder = ["푸르지오1차", "푸르지오2차", "푸르지오", "센트리버", "리버나인", "더샵", "더샾", "칸타빌"];
+                const customOrder = ["푸지1차", "푸지2차", "푸르지오", "센트리버", "리버나인", "더샵", "더샾", "칸타빌"];
                 const getAptWeight = (name) => {
                     if (name === "기타") return 9999;
                     const idx = customOrder.indexOf(name);
