@@ -1505,7 +1505,7 @@
             // "전체" 아파트 버튼 생성
             const allAptBtn = document.createElement('button');
             allAptBtn.className = `btn-select apt-btn ${activeApartment === '전체' ? 'active' : ''}`;
-            allAptBtn.innerText = `전체 ${getDeliveryProgressText(filtered)}`;
+            allAptBtn.innerHTML = `<span style="display:block; line-height:1.15;">전체</span><span style="display:block; font-size:11px; font-weight:800; line-height:1.15; opacity:0.85;">${getDeliveryProgressText(filtered)}</span>`;
             allAptBtn.onclick = () => {
                 activeApartment = "전체";
                 activeDong = "전체";
@@ -1520,7 +1520,7 @@
             apartments.forEach(apt => {
                 const btn = document.createElement('button');
                 btn.className = `btn-select apt-btn ${apt === activeApartment ? 'active' : ''}`;
-                btn.innerText = `${apt} ${getDeliveryProgressText(aptGroups[apt])}`;
+                btn.innerHTML = `<span style="display:block; line-height:1.15;">${apt}</span><span style="display:block; font-size:11px; font-weight:800; line-height:1.15; opacity:0.85;">${getDeliveryProgressText(aptGroups[apt])}</span>`;
                 btn.onclick = () => {
                     activeApartment = apt;
                     activeDong = "전체"; // 아파트 변경 시 동을 "전체"로 설정
