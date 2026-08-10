@@ -1236,43 +1236,30 @@
                 return getNum(b) - getNum(a); // 최신 일이 먼저
             });
 
-            // 페이지 최초 로드 시 오늘 날짜를 기본 활성화 (오늘이 없으면 가장 최근 배달일 또는 전체)
+            // [변경] 기본 선택 없음(전체) — 아파트와 동일. 오늘 버튼은 앰버 테두리로만 강조, 날짜 클릭 시 그 날짜만 표시
             const todayObj = new Date();
             const todayDayStr = todayObj.getDate() + "일";
             if (!currentDay) {
-                currentDay = sortedDays.includes(todayDayStr) ? todayDayStr : (sortedDays[0] || "전체");
+                currentDay = "전체";
             }
 
-            // "전체" 버튼 생성
-            const allDayBtn = document.createElement('button');
-            allDayBtn.className = `date-tab-btn ${currentDay === '전체' ? 'active' : ''}`;
-            allDayBtn.innerText = `전체`;
-            allDayBtn.onclick = () => {
-                currentDay = "전체";
-                document.querySelectorAll('#date-tabs .date-tab-btn').forEach(b => b.classList.remove('active'));
-                allDayBtn.classList.add('active');
-
-                activeApartment = "";
-                activeDong = "전체";
-                renderFilteredData();
-            };
-            dateContainer.appendChild(allDayBtn);
-
-            // 개별 일 버튼 생성
+            // [변경] '전체' 버튼 제거 — 날짜 토글로 대체(아무 날짜도 선택 안 하면 전체)
+            // 개별 일 버튼 생성 ('일' 표시 제거, 내부값 currentDay는 '10일' 형식 그대로)
             sortedDays.forEach(day => {
                 const btn = document.createElement('button');
                 const isToday = (day === todayDayStr);
                 btn.className = `date-tab-btn ${day === currentDay ? 'active' : ''}${isToday ? ' today-tab' : ''}`;
-                btn.innerText = day;
+                btn.innerText = String(day).replace('일', ''); // [변경] '일' 제거 표시
                 if (isToday) {
                     // [신규] 오늘 날짜 버튼은 다른 날짜를 눌러도 구분되도록 굵은 앰버색 테두리 표시
                     btn.style.border = '3.5px solid #f59e0b';
                     btn.title = '오늘';
                 }
                 btn.onclick = () => {
-                    currentDay = day;
+                    // [변경] 토글: 같은 날짜 재클릭 시 해제 → 전체
+                    currentDay = (currentDay === day) ? "전체" : day;
                     document.querySelectorAll('#date-tabs .date-tab-btn').forEach(b => b.classList.remove('active'));
-                    btn.classList.add('active');
+                    if (currentDay === day) btn.classList.add('active');
 
                     activeApartment = "";
                     activeDong = "전체";
@@ -1511,31 +1498,25 @@
                 activeApartment = "전체";
             }
 
-            // "전체" 아파트 버튼 생성
-            const allAptBtn = document.createElement('button');
-            allAptBtn.className = `btn-select apt-btn ${activeApartment === '전체' ? 'active' : ''}`;
-            allAptBtn.innerHTML = `<span style="display:block; line-height:1.15;">전체</span><span style="display:block; font-size:11px; font-weight:800; line-height:1.15; opacity:0.85;">${getDeliveryProgressText(filtered)}</span>`;
-            allAptBtn.onclick = () => {
-                activeApartment = "전체";
-                activeDong = "전체";
-                document.querySelectorAll('.apt-btn').forEach(b => b.classList.remove('active'));
-                allAptBtn.classList.add('active');
-
-                document.getElementById('dong-section').style.display = 'none';
-                renderOrderCards(filtered);
-            };
-            aptContainer.appendChild(allAptBtn);
-
+            // [변경] '전체' 버튼 제거 — 아파트 토글로 대체(아무 아파트도 선택 안 하면 전체 표시)
             apartments.forEach(apt => {
                 const btn = document.createElement('button');
                 btn.className = `btn-select apt-btn ${apt === activeApartment ? 'active' : ''}`;
                 btn.innerHTML = `<span style="display:block; line-height:1.15;">${apt}</span><span style="display:block; font-size:11px; font-weight:800; line-height:1.15; opacity:0.85;">${getDeliveryProgressText(aptGroups[apt])}</span>`;
                 btn.onclick = () => {
-                    activeApartment = apt;
                     activeDong = "전체"; // 아파트 변경 시 동을 "전체"로 설정
-                    document.querySelectorAll('.apt-btn').forEach(b => b.classList.remove('active'));
-                    btn.classList.add('active');
-                    renderDongButtons(aptGroups[apt]);
+                    if (activeApartment === apt) {
+                        // [변경] 토글 해제 → 전체(선택 없음, 하이라이트 없음)
+                        activeApartment = "전체";
+                        document.querySelectorAll('.apt-btn').forEach(b => b.classList.remove('active'));
+                        document.getElementById('dong-section').style.display = 'none';
+                        renderOrderCards(filtered);
+                    } else {
+                        activeApartment = apt;
+                        document.querySelectorAll('.apt-btn').forEach(b => b.classList.remove('active'));
+                        btn.classList.add('active');
+                        renderDongButtons(aptGroups[apt]);
+                    }
                 };
                 aptContainer.appendChild(btn);
             });
