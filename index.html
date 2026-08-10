@@ -1134,6 +1134,9 @@
 
                 if (isManualRefresh) {
                     showToast("최신 주문 데이터가 동기화되었습니다.");
+                    currentDay = ""; // [신규] 새로고침 시 오늘 날짜로 리셋 (전체가 아니라 오늘 주문건만 표시)
+                    activeApartment = "";
+                    activeDong = "전체";
                 }
 
                 buildDateTabs();
@@ -1236,11 +1239,11 @@
                 return getNum(b) - getNum(a); // 최신 일이 먼저
             });
 
-            // [변경] 기본 선택 없음(전체) — 아파트와 동일. 오늘 버튼은 앰버 테두리로만 강조, 날짜 클릭 시 그 날짜만 표시
+            // [변경] 기본은 오늘 날짜만 표시(새로고침/최초 로드 시). 날짜 클릭 시 그 날짜만, 같은 날짜 재클릭 시 해제(전체)
             const todayObj = new Date();
             const todayDayStr = todayObj.getDate() + "일";
             if (!currentDay) {
-                currentDay = "전체";
+                currentDay = sortedDays.includes(todayDayStr) ? todayDayStr : (sortedDays[0] || "전체");
             }
 
             // [변경] '전체' 버튼 제거 — 날짜 토글로 대체(아무 날짜도 선택 안 하면 전체)
@@ -1744,18 +1747,36 @@
                 return dongOrders.indexOf(a.orders[0]) - dongOrders.indexOf(b.orders[0]);
             });
 
-            // 공동현관 비번 정보 로드 (동이 "전체"가 아닐 때만 노출)
+            // 공동현관 비번 정보 로드 (동이 "전체"가 아닐 때만 노출) — [변경] 1·2 라인 / 3·4 라인 두 박스로 분리
             if (activeDong !== "전체" && activeApartment !== "전체") {
-                const cachedPassword = (entrancePasswords[activeApartment] && entrancePasswords[activeApartment][activeDong]) || "";
+                const pwdMap = entrancePasswords[activeApartment] || {};
+                const legacy = pwdMap[activeDong] || "";            // 기존 단일 비번(하위호환)
+                // [신규] 기존 필드를 호수 끝자리로 라인 자동 분류: 1·2호=1·2라인, 3·4호=3·4라인, 호수 없는 공통코드는 양쪽에
+                const _lineOfHo = (tok) => { const m = String(tok).match(/^(\d{2,})/); if (!m) return 'both'; const d = m[1].slice(-1); return (d === '3' || d === '4') ? '34' : (d === '1' || d === '2') ? '12' : 'both'; };
+                const _auto12 = [], _auto34 = [];
+                String(legacy).trim().split(/\s+/).filter(Boolean).forEach(t => { const l = _lineOfHo(t); if (l === '34') _auto34.push(t); else if (l === '12') _auto12.push(t); else { _auto12.push(t); _auto34.push(t); } });
+                const pwd12 = pwdMap[`${activeDong}_1-2라인`] || _auto12.join('  ') || ""; // 저장된 라인 키 우선, 없으면 자동 분류값
+                const pwd34 = pwdMap[`${activeDong}_3-4라인`] || _auto34.join('  ') || "";
 
-                // 첫째줄: 공동현관 비번 입력란 카드 렌더링
                 const pwdCard = document.createElement('div');
                 pwdCard.className = 'password-card';
                 pwdCard.innerHTML = `
                     <div class="password-header">🚪 ${activeApartment} ${activeDong} 공동현관 비번</div>
-                    <div class="password-body">
-                        <input type="text" id="entrance-password-input" class="password-input" placeholder="비밀번호(예: 열쇠1234종) 입력..." value="${cachedPassword}">
-                        <button class="btn-pwd-save" onclick="saveEntrancePassword()">저장</button>
+                    <div style="display:flex; flex-direction:column; gap:8px; margin-top:6px;">
+                        <div>
+                            <div style="font-size:11px; font-weight:800; color:#334155; margin-bottom:4px;">1·2 라인</div>
+                            <div class="password-body">
+                                <input type="text" id="entrance-password-input-12" class="password-input" placeholder="1·2호 라인 비밀번호..." value="${pwd12}">
+                                <button class="btn-pwd-save" onclick="saveEntrancePassword('12')">저장</button>
+                            </div>
+                        </div>
+                        <div>
+                            <div style="font-size:11px; font-weight:800; color:#334155; margin-bottom:4px;">3·4 라인</div>
+                            <div class="password-body">
+                                <input type="text" id="entrance-password-input-34" class="password-input" placeholder="3·4호 라인 비밀번호..." value="${pwd34}">
+                                <button class="btn-pwd-save" onclick="saveEntrancePassword('34')">저장</button>
+                            </div>
+                        </div>
                     </div>
                 `;
                 listContainer.appendChild(pwdCard);
@@ -1859,15 +1880,18 @@
             });
         }
 
-        // 공동현관 비밀번호 저장
-        async function saveEntrancePassword() {
+        // 공동현관 비밀번호 저장 — [변경] 라인별('12'=1·2라인 / '34'=3·4라인)
+        async function saveEntrancePassword(line) {
             if (!activeApartment || !activeDong) return;
-            const input = document.getElementById("entrance-password-input");
+            const is34 = (line === '34');
+            const input = document.getElementById(is34 ? "entrance-password-input-34" : "entrance-password-input-12");
+            if (!input) return;
             const pwd = input.value.trim();
+            const dongKeyName = is34 ? `${activeDong}_3-4라인` : `${activeDong}_1-2라인`;
             showLoader("공동현관 비밀번호 저장 중...");
             try {
                 const aptKey = encodeURIComponent(activeApartment);
-                const dongKey = encodeURIComponent(activeDong);
+                const dongKey = encodeURIComponent(dongKeyName);
                 const url = `${FIREBASE_DB_URL}entrance_passwords/${aptKey}/${dongKey}.json`;
                 const res = await fetch(url, {
                     method: 'PUT',
@@ -1875,12 +1899,12 @@
                     body: JSON.stringify(pwd)
                 });
                 if (!res.ok) throw new Error("Firebase 저장 실패");
-                showToast("공동현관 비밀번호가 저장되었습니다.");
+                showToast(`${is34 ? '3·4' : '1·2'} 라인 공동현관 비밀번호가 저장되었습니다.`);
 
                 if (!entrancePasswords[activeApartment]) {
                     entrancePasswords[activeApartment] = {};
                 }
-                entrancePasswords[activeApartment][activeDong] = pwd;
+                entrancePasswords[activeApartment][dongKeyName] = pwd;
             } catch (e) {
                 console.error(e);
                 showToast("저장에 실패했습니다.");
