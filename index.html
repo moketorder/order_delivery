@@ -67,9 +67,7 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
-            position: sticky;
-            top: 0;
-            z-index: 1000;
+            position: static;
             box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
         }
 
@@ -238,6 +236,17 @@
 
         .swipe-container .btn-select {
             flex-shrink: 0;
+        }
+
+        /* [신규] 아파트 선택 버튼: 스크롤해도 상단 고정 (헤더는 스크롤됨) */
+        #apartment-buttons {
+            position: sticky;
+            top: 0;
+            z-index: 900;
+            background: var(--bg-color);
+            padding-top: 8px;
+            padding-bottom: 8px;
+            box-shadow: 0 3px 6px rgba(0, 0, 0, 0.06);
         }
 
         .btn-select {
