@@ -1841,6 +1841,12 @@
                 // 엉뚱한 유령 키에 PATCH되고 실제 주문은 미처리됨. 상품명에 없는 '|@@|'로 구분(주문관리.html과 동일).
                 const orderKeysStr = customer.orders.map(o => o.orderKey).join('|@@|');
 
+                // [신규] 이 고객 주문금액 총합 (취소 제외)
+                const cardTotalAmount = customer.orders.reduce((s, o) => {
+                    const canceled = (o.canceled === true || String(o.canceled).toUpperCase() === "TRUE");
+                    return canceled ? s : s + (parseInt(o.total || 0) || 0);
+                }, 0);
+
                 card.innerHTML = `
                     <div class="rider-card-header">
                         <span class="unit-number">${fullDongHo}</span>
@@ -1856,6 +1862,10 @@
                         
                         <div class="item-list">
                             ${itemHtml}
+                        </div>
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px; padding-top:8px; border-top:1.5px solid #e5e7eb; font-weight:900; font-size:14px;">
+                            <span>주문금액 총합</span>
+                            <span style="color:var(--primary);">${cardTotalAmount.toLocaleString()}원</span>
                         </div>
 
                         ${(customer.deliveryPhotoExists || customer.deliveryPhoto) ? `
