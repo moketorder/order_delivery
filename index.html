@@ -138,7 +138,7 @@
 
         .date-tab-btn {
             flex-shrink: 0;
-            padding: 8px 14px;
+            padding: 8px 11px;
             border-radius: 20px;
             background: #cbd5e1;
             color: var(--text-sub);
@@ -640,8 +640,10 @@
             <select id="month-select" class="select-dropdown" onchange="handleMonthChange(this.value)" style="flex: 1; min-width: 0;">
                 <!-- 동적 로드 -->
             </select>
-            <button id="delivery-status-filter-btn" onclick="cycleDeliveryStatusFilter()" class="btn-select" style="height: 42px; padding: 0 16px; font-size: 14px; font-weight: 800; border-radius: var(--radius-sub); white-space: nowrap; flex-shrink: 0; display: flex; align-items: center; justify-content: center; background: #3b82f6; color: white; border: none; box-shadow: var(--shadow); transition: var(--transition);">
-                🔄 전체
+            <!-- [수정] '전체'(배달완료 여부 순환) 버튼 자리를 갱신 버튼으로 바꿨다.
+                 화면을 켤 때마다 자동으로 받지 않고, 이 버튼을 누를 때만 최신 주문을 받는다. -->
+            <button id="btn-refresh-orders" onclick="loadData(true)" class="btn-select" style="height: 42px; padding: 0 16px; font-size: 14px; font-weight: 800; border-radius: var(--radius-sub); white-space: nowrap; flex-shrink: 0; display: flex; align-items: center; justify-content: center; background: #3b82f6; color: white; border: none; box-shadow: var(--shadow); transition: var(--transition);">
+                🔄 갱신
             </button>
         </div>
         <!-- 날짜 필터 탭 -->
@@ -652,12 +654,9 @@
         <!-- 검색창 및 날짜 범위 필터 -->
         <div class="search-card">
             <div class="search-input-wrapper" style="display: flex; gap: 8px; align-items: center;">
-                <select id="filterDateRange" class="select-filter" style="width: 76px; min-width: 76px; flex-shrink: 0; padding: 10px 4px; border: 1.5px solid #cbd5e1; border-radius: var(--radius-sub); font-size: 13px; font-weight: 700; background: white; outline: none;" onchange="handleFilterChange()">
-                    <option value="day" selected>🔍 일</option>
-                    <option value="week">🔍 주</option>
-                    <option value="month">🔍 월</option>
-                    <option value="all">🔍 전체</option>
-                </select>
+                <!-- [수정] 기간 선택(일·주·월·전체)을 없앴다.
+                     '전체'는 과거 보관함(약 1.8MB)을 통째로 받았고, 나머지는 이미 받아둔 자료를
+                     좁혀 보는 용도라 배달에는 쓸모가 적었다. 이제 항상 최근 한 달치를 보여준다. -->
                 <div style="position: relative; flex: 1; min-width: 0;">
                     <input type="text" id="searchInput" class="search-input" placeholder="고객명, 연락처, 호수, 상품명 검색..." onkeyup="handleSearchInput()">
                     <button id="clearSearchBtn" class="clear-search-btn" onclick="clearSearch()">&times;</button>
@@ -802,43 +801,81 @@
             });
         }
 
-        // 아파트 이름 추출 헬퍼
+        // [수정] 아파트 표 — 도로명주소가 기준이다.
+        //  예전에는 지번과 이름조각만 봤는데, 지번은 주소에 안 들어오는 곳이 많고
+        //  이름조각은 같은 단지가 '미사강변 푸르지오'/'미사강변 1차 푸르지오'처럼
+        //  여러 갈래로 적혀 들어와 한 아파트가 두 이름으로 갈라졌다.
+        //  도로명주소는 한 단지에 딱 하나뿐이라 이게 가장 확실하다.
+        //   name : 화면에 쓰는 짧은 이름 (공동현관 비번 저장 키와 같아야 한다)
+        //   roads: 도로명 + 건물번호 (공백 없이)
+        //   lots : 도로명주소가 안 적혀 온 주소를 위한 지번
+        //   words: 위 둘로 못 찾을 때만 보는 이름조각 (긴 것부터 맞춘다)
+        const APT_TABLE = [
+            { name: "푸지2차",     roads: ["미사강변한강로60"],  lots: ["선동433"],     words: ["미사강변2차푸르지오", "2차푸르지오"] },
+            { name: "푸지1차",     roads: ["미사강변대로165"],   lots: [],              words: ["미사강변1차푸르지오", "1차푸르지오", "미사강변푸르지오", "푸르지오"] },
+            { name: "센트리버",    roads: ["미사강변대로270"],   lots: [],              words: ["센트리버"] },
+            { name: "리버나인",    roads: ["미사강변한강로110"], lots: ["선동435"],     words: ["리버나인"] },
+            { name: "칸타빌",      roads: ["미사강변한강로30"],  lots: ["선동432"],     words: ["리버스위트칸타빌", "칸타빌"] },
+            { name: "더샵",        roads: ["미사강변북로65"],    lots: ["선동436"],     words: ["미사강변더샵리버포레", "리버포레", "더샵"] },
+            { name: "베라체",      roads: ["풍산로270"],         lots: ["선동434"],     words: ["베라체"] },
+            { name: "레스티아",    roads: ["미사강변동로20"],    lots: [],              words: ["레스티아"] },
+            { name: "리버뷰자이",  roads: [],                    lots: ["선동430"],     words: ["미사강변리버뷰자이", "리버뷰자이"] },
+            { name: "자이",        roads: [],                    lots: ["선동427"],     words: ["미사강변센트럴자이", "센트럴자이"] },
+            { name: "골든센트로",  roads: [],                    lots: ["망월동1100"],  words: ["골든센트로"] },
+            { name: "부영",        roads: [],                    lots: ["망월동1110"],  words: ["사랑으로부영", "부영"] },
+            { name: "센트럴포레",  roads: [],                    lots: ["망월동1090"],  words: ["센트럴포레"] },
+            { name: "e편한세상",   roads: [], lots: [], words: ["e편한", "이편한"] },
+            { name: "서희스타힐스", roads: [], lots: [], words: ["서희스타힐스"] },
+            { name: "힐스테이트",  roads: [], lots: [], words: ["힐스테이트"] },
+            { name: "신안인스빌",  roads: [], lots: [], words: ["신안인스빌"] },
+            { name: "루나리움",    roads: [], lots: [], words: ["루나리움"] },
+            { name: "디에트르",    roads: [], lots: [], words: ["디에트르"] },
+            { name: "아이파크",    roads: [], lots: [], words: ["아이파크"] },
+            { name: "롯데캐슬",    roads: [], lots: [], words: ["롯데캐슬"] },
+            { name: "아데나",      roads: [], lots: [], words: ["아데나"] },
+            { name: "호반",        roads: [], lots: [], words: ["호반"] },
+            { name: "동원",        roads: [], lots: [], words: ["동원"] },
+            { name: "스타힐스",    roads: [], lots: [], words: ["스타힐스"] },
+            // 짧은 '자이'가 '리버뷰자이'를 가로채지 않게 맨 뒤에 둔다.
+            { name: "자이",        roads: [], lots: [], words: ["자이"] }
+        ];
+
+        // 주소에서 도로명주소(도로명 + 건물번호)만 뽑는다.
+        // '미사강변북로85번길 38-2'처럼 길 이름 안에 숫자가 있어도 마지막 '로/길 + 번호'를 쓴다.
+        function gRoadKey(address) {
+            const s = String(address || "").replace(/\([^)]*\)/g, " ").replace(/\s+/g, " ").trim();
+            const re = /([가-힣A-Za-z][가-힣A-Za-z0-9]*(?:대로|로|길))\s*(\d+(?:-\d+)?)(?![가-힣0-9])/g;
+            let m, last = null;
+            while ((m = re.exec(s)) !== null) last = m;
+            return last ? (last[1] + last[2]) : "";
+        }
+
+        // 아파트 이름 추출 헬퍼 — 도로명주소 → 지번 → 이름조각 순으로 본다.
         function extractApartmentName(address) {
             if (!address) return "";
             const normalized = String(address).replace(/\s+/g, "");
 
-            // 푸르지오 1차/2차 구분: 1차=망월동(미사강변대로 165), 2차=선동(선동 433)
-            const puChasu = normalized.includes("2차") ? "2차"
-                          : normalized.includes("1차") ? "1차"
-                          : normalized.includes("선동433") ? "2차"
-                          : "";
-
-            if (normalized.includes("선동433")) return "푸지2차";
-            if (normalized.includes("선동436")) return "더샵";
-            if (normalized.includes("선동427")) return "자이";
-            if (normalized.includes("선동430")) return "리버뷰자이";
-            if (normalized.includes("선동434")) return "베라체";
-            if (normalized.includes("선동435")) return "리버나인";
-            if (normalized.includes("선동432")) return "칸타빌";
-            if (normalized.includes("망월동1100")) return "골든센트로";
-            if (normalized.includes("망월동1110")) return "부영";
-            if (normalized.includes("망월동1090")) return "센트럴포레";
-
-            const keywords = [
-                "푸르지오", "더샵", "자이", "베라체", "리버나인", "칸타빌", "골든센트로", "부영", "센트럴포레",
-                "아데나", "신안인스빌", "동원", "호반", "루나리움", "힐스테이트", "디에트르", "아이파크",
-                "e편한", "이편한", "리버뷰자이", "센트럴자이", "리버포레", "롯데캐슬", "스타힐스", "서희스타힐스",
-                "센트리버"
-            ];
-
-            for (const keyword of keywords) {
-                if (normalized.includes(keyword)) {
-                    if (keyword === "이편한" || keyword === "e편한") return "e편한세상";
-                    if (keyword === "푸르지오") return puChasu ? ("푸지" + puChasu) : "푸르지오"; // 푸지1차/푸지2차 표기
-                    return keyword;
+            // 1. 도로명주소 (기본)
+            const road = gRoadKey(address);
+            if (road) {
+                for (const apt of APT_TABLE) {
+                    if (apt.roads.includes(road)) return apt.name;
                 }
             }
-            return "기타";
+
+            // 2. 도로명주소가 없거나 표에 없으면 지번으로 채워 본다
+            for (const apt of APT_TABLE) {
+                if (apt.lots.some(lot => normalized.includes(lot))) return apt.name;
+            }
+
+            // 3. 그래도 못 찾으면 이름조각. 긴 조각이 이긴다.
+            let best = "", bestLen = 0;
+            for (const apt of APT_TABLE) {
+                for (const w of apt.words) {
+                    if (w.length > bestLen && normalized.includes(w)) { best = apt.name; bestLen = w.length; }
+                }
+            }
+            return best || "기타";
         }
 
         // 동 번호(숫자) 추출 헬퍼
@@ -1021,24 +1058,9 @@
             return false;
         }
 
-        // [신규] 마지막으로 주문을 받아온 시각.
-        //  이 앱은 화면이 켜지거나(visibilitychange) 다른 앱에서 돌아올 때(pageshow) 다시 받는데,
-        //  한 번에 전체 주문(약 480KB)을 통째로 받는다. 배달 중에는 문자·사진·지도로 왔다 갔다 하고
-        //  화면도 수시로 켜지므로, 그때마다 받으면 하루에 수백 MB가 나간다.
-        //  주문 마감 뒤에 배달을 나가므로 1분 간격이면 충분하다. (새로고침 버튼은 이 제한을 무시)
-        let _lastLoadAt = 0;
-        const LOAD_MIN_GAP_MS = 60 * 1000;
-
-        // DB에서 데이터 로드
+        // DB에서 데이터 로드 — 앱을 열 때 1회, 그 뒤로는 '🔄 갱신' 버튼을 누를 때만 부른다.
+        //  (화면 켜짐·앱 복귀마다 자동으로 받던 것을 없앴으므로 시간 제한도 두지 않는다)
         async function loadData(isManualRefresh = false) {
-            // 방금 받아왔으면 건너뛴다. 사장님이 직접 누른 새로고침은 항상 받는다.
-            if (!isManualRefresh && _lastLoadAt && (Date.now() - _lastLoadAt) < LOAD_MIN_GAP_MS) {
-                const left = Math.ceil((LOAD_MIN_GAP_MS - (Date.now() - _lastLoadAt)) / 1000);
-                console.log(`최근에 받아와서 건너뜁니다 (${left}초 뒤 갱신 가능)`);
-                return;
-            }
-            _lastLoadAt = Date.now();
-
             showLoader("데이터를 동기화하고 있습니다...");
 
             const syncTimeTextEl = document.getElementById('sync-time-text');
@@ -1150,16 +1172,14 @@
 
                 if (isManualRefresh) {
                     showToast("최신 주문 데이터가 동기화되었습니다.");
-                    currentDay = ""; // [신규] 새로고침 시 오늘 날짜로 리셋 (전체가 아니라 오늘 주문건만 표시)
-                    activeApartment = "";
-                    activeDong = "전체";
+                    // [수정] 갱신해도 보고 있던 날짜·아파트·동을 그대로 둔다.
+                    //  예전에는 여기서 셋 다 지워 오늘·전체로 되돌렸는데,
+                    //  배달 도중 갱신을 누르면 보던 자리를 잃어 매번 다시 찾아 들어가야 했다.
                 }
 
                 buildDateTabs();
             } catch (e) {
                 console.error(e);
-                // 실패했으면 1분을 기다리지 않고 다음 기회에 바로 다시 받도록 되돌린다
-                _lastLoadAt = 0;
                 showToast("데이터를 로드하지 못했습니다.");
                 if (syncTimeTextEl) syncTimeTextEl.innerText = "동기화 실패";
                 if (syncDotEl) syncDotEl.style.backgroundColor = "var(--red)";
@@ -1262,6 +1282,9 @@
             const todayDayStr = todayObj.getDate() + "일";
             if (!currentDay) {
                 currentDay = sortedDays.includes(todayDayStr) ? todayDayStr : (sortedDays[0] || "전체");
+            } else if (currentDay !== "전체" && !sortedDays.includes(currentDay)) {
+                // 보고 있던 날짜가 이번 자료엔 없을 때만 되돌린다. (그대로 두면 빈 화면이 된다)
+                currentDay = sortedDays.includes(todayDayStr) ? todayDayStr : (sortedDays[0] || "전체");
             }
 
             // [변경] '전체' 버튼 제거 — 날짜 토글로 대체(아무 날짜도 선택 안 하면 전체)
@@ -1270,7 +1293,16 @@
                 const btn = document.createElement('button');
                 const isToday = (day === todayDayStr);
                 btn.className = `date-tab-btn ${day === currentDay ? 'active' : ''}${isToday ? ' today-tab' : ''}`;
-                btn.innerText = String(day).replace('일', ''); // [변경] '일' 제거 표시
+                // [변경] '일' 제거 + 요일 표시. 예: 14 (수)
+                const dayNumStr = String(day).replace('일', '');
+                const yNum = parseInt(String(activeMonthInfo.year).replace('년', ''));
+                const mNum = parseInt(String(activeMonthInfo.month).replace('월', ''));
+                const dNum = parseInt(dayNumStr);
+                let dowStr = '';
+                if (!isNaN(yNum) && !isNaN(mNum) && !isNaN(dNum)) {
+                    dowStr = ' (' + ['일', '월', '화', '수', '목', '금', '토'][new Date(yNum, mNum - 1, dNum).getDay()] + ')';
+                }
+                btn.innerText = dayNumStr + dowStr;
                 if (isToday) {
                     // [신규] 오늘 날짜 버튼은 다른 날짜를 눌러도 구분되도록 굵은 앰버색 테두리 표시
                     btn.style.border = '3.5px solid #f59e0b';
@@ -1292,99 +1324,22 @@
             renderFilteredData();
         }
 
-        let isArchiveLoaded = false;
+        // [삭제] 과거 보관함(orders_archive, 약 1.8MB) 조회는 없앴다.
+        //  기사 앱에서 기간을 '전체'로 고르면 이 자료를 통째로 받아 데이터 사용량이 크게 늘었는데,
+        //  배달에는 최근 10일치면 충분하다. 오래된 주문 확인은 주문관리에서 한다.
 
-        async function loadArchiveOrdersIfNeeded() {
-            if (isArchiveLoaded) return;
-            showLoader("📁 과거 아카이브 보관함 데이터를 불러오는 중...");
-            try {
-                const res = await fetch(`${FIREBASE_DB_URL}orders_archive.json`);
-                if (res.ok) {
-                    const data = await res.json();
-                    if (data) {
-                        for (const phone in data) {
-                            for (const orderKey in data[phone]) {
-                                const it = data[phone][orderKey];
-                                if (!it || typeof it !== 'object') continue;
-
-                                // 필수 필드인 상품명(item)이 없으면 주문 항목이 아니므로 제외
-                                if (!it.item || String(it.item).trim() === "") continue;
-
-                                const isCanceled = (it.canceled === true || it.canceled === "true" || String(it.canceled).toUpperCase() === "TRUE");
-                                if (isCanceled) continue;
-
-                                const isDelivery = (it.shippingMethod === '배달주문' || (it.shippingMethod !== '매장픽업' && it.address && String(it.address).trim() !== ""));
-                                if (!isDelivery) continue;
-
-                                const isDelivered = (it.delivered === true || it.delivered === "true" || String(it.delivered).toUpperCase() === "TRUE");
-                                const isStocked = (it.isStocked === true || it.isStocked === "true" || String(it.isStocked).toUpperCase() === "TRUE");
-
-                                let calculatedStatus = "대기";
-                                if (isDelivered) calculatedStatus = "배달완료";
-                                else if (isStocked) calculatedStatus = "입고";
-
-                                const exists = rawOrders.some(o => o.phone === phone && o.orderKey === orderKey);
-                                if (!exists) {
-                                    rawOrders.push({
-                                        phone,
-                                        orderKey,
-                                        ...it,
-                                        status: calculatedStatus,
-                                        isArchived: true
-                                    });
-                                }
-                            }
-                        }
-                        rawOrders.sort((a, b) => parseTimestampToDate(b.timestamp) - parseTimestampToDate(a.timestamp));
-                    }
-                }
-                isArchiveLoaded = true;
-            } catch (e) {
-                console.error("아카이브 로드 실패:", e);
-            } finally {
-                hideLoader();
-            }
-        }
-
-        async function handleFilterChange() {
-            const searchRangeEl = document.getElementById('filterDateRange');
-            const searchRange = searchRangeEl ? searchRangeEl.value : 'day';
-            if (searchRange === 'all' && !isArchiveLoaded) {
-                await loadArchiveOrdersIfNeeded();
-            }
+        // [수정] '전체' 선택지를 없애면서 보관함 호출도 뗐다.
+        //  기사 앱은 최근 10일치(orders)만 본다. 그보다 오래된 주문은 주문관리에서 확인한다.
+        function handleFilterChange() {
             renderFilteredData();
         }
 
-        async function handleSearchInput() {
-            const searchRangeEl = document.getElementById('filterDateRange');
-            const searchRange = searchRangeEl ? searchRangeEl.value : 'day';
-            if (searchRange === 'all' && !isArchiveLoaded) {
-                await loadArchiveOrdersIfNeeded();
-            }
+        function handleSearchInput() {
             renderFilteredData();
         }
 
-        // 배달 완료 여부 필터 순환 변경 함수
-        function cycleDeliveryStatusFilter() {
-            const btn = document.getElementById('delivery-status-filter-btn');
-            if (!btn) return;
-            
-            if (currentStatusFilter === "all") {
-                currentStatusFilter = "incomplete";
-                btn.innerText = "🔴 미완료";
-                btn.style.background = "var(--red)";
-            } else if (currentStatusFilter === "incomplete") {
-                currentStatusFilter = "completed";
-                btn.innerText = "🟢 완료";
-                btn.style.background = "var(--primary)";
-            } else {
-                currentStatusFilter = "all";
-                btn.innerText = "🔄 전체";
-                btn.style.background = "var(--blue)";
-            }
-            
-            renderFilteredData();
-        }
+        // [삭제] 배달 완료 여부 순환 필터('전체/미완료/완료') — 그 버튼 자리를 갱신 버튼으로 바꾸면서 뺐다.
+        //  currentStatusFilter는 'all'로 고정되어 모든 주문이 보인다.
 
         // 필터링 및 아파트/동 구조 렌더링
         function renderFilteredData() {
@@ -1392,47 +1347,26 @@
             const clearBtn = document.getElementById('clearSearchBtn');
             if (clearBtn) clearBtn.style.display = search !== "" ? "flex" : "none";
 
-            const searchRangeEl = document.getElementById('filterDateRange');
-            const searchRange = searchRangeEl ? searchRangeEl.value : 'day';
-
-            const todayStart = new Date();
-            todayStart.setHours(0, 0, 0, 0);
-            const todayTime = todayStart.getTime();
-
-            // 1단계: 날짜 범위 필터링 (기본값: 주 ±7일)
+            // [수정] 기간 선택칸(일·주·월·전체)을 없애면서 날짜 탭이 무시되고 있었다.
+            //  이제 위의 월 선택 + 날짜 탭이 그대로 기준이 된다.
+            //   · 날짜 탭에서 특정 날짜를 고르면 → 그 날짜만
+            //   · '전체'면 → 고른 달 전체
+            //  검색어는 이 범위 안에서 걸린다.
             let filtered = rawOrders.filter(item => {
                 const info = getOrderDateInfo(item);
-                
-                if (searchRange === "day") {
-                    if (info.dateStr === "기타") return true;
-                    const parts = info.dateStr.split('-');
-                    const itemYear = parts[0] + "년";
-                    const itemMonth = parseInt(parts[1]) + "월";
-                    const itemDay = parseInt(parts[2]) + "일";
-                    return itemYear === currentYear && itemMonth === currentMonth && (currentDay === "전체" || itemDay === currentDay);
-                } else if (searchRange === "week") {
-                    // 주: 당일 기준 앞뒤 7일 (-7일 ~ +7일)
-                    if (!info.dateStr || info.dateStr === "기타") return true;
-                    const parts = info.dateStr.split('-');
-                    if (parts.length === 3) {
-                        const itemDate = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
-                        const t = itemDate.getTime();
-                        return t >= (todayTime - 7 * 24 * 60 * 60 * 1000) && t <= (todayTime + 8 * 24 * 60 * 60 * 1000) - 1;
-                    }
-                    return true;
-                } else if (searchRange === "month") {
-                    // 월: 당일 기준 앞뒤 30일 (-30일 ~ +30일)
-                    if (!info.dateStr || info.dateStr === "기타") return true;
-                    const parts = info.dateStr.split('-');
-                    if (parts.length === 3) {
-                        const itemDate = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
-                        const t = itemDate.getTime();
-                        return t >= (todayTime - 30 * 24 * 60 * 60 * 1000) && t <= (todayTime + 31 * 24 * 60 * 60 * 1000) - 1;
-                    }
-                    return true;
-                } else { // "all" (과거 전체 포함)
-                    return true;
-                }
+                if (!info.dateStr || info.dateStr === "기타") return true; // 날짜를 못 읽는 건은 항상 보여준다
+
+                const parts = info.dateStr.split('-');
+                if (parts.length !== 3) return true;
+
+                const itemYear = parts[0] + "년";
+                const itemMonth = parseInt(parts[1]) + "월";
+                const itemDay = parseInt(parts[2]) + "일";
+
+                if (currentYear && itemYear !== currentYear) return false;
+                if (currentMonth && itemMonth !== currentMonth) return false;
+                if (currentDay && currentDay !== "전체" && itemDay !== currentDay) return false;
+                return true;
             });
 
             // 2단계: 검색어 필터링
@@ -1495,15 +1429,22 @@
             const aptContainer = document.getElementById('apartment-buttons');
             aptContainer.innerHTML = '';
 
-            const customOrder = ["푸지1차", "푸지2차", "푸르지오", "센트리버", "리버나인", "더샵", "더샾", "칸타빌"];
+            // [수정] 아파트 버튼 순서 — 배달 갈 집이 많은 곳부터.
+            //  예전에는 이름을 손으로 적어 둔 차례대로 놨는데, 새 아파트가 생기거나
+            //  이름이 바뀌면 그 목록을 매번 고쳐 줘야 해서 관리가 안 됐다.
+            //  세는 단위는 버튼에 찍히는 숫자와 같은 '집 수'다. 상품 줄 수로 세면
+            //  한 집에서 많이 시킨 아파트가 실제보다 앞으로 올라온다.
+            //  물량이 가장 많은 푸지2차는 늘 맨 앞, '기타'는 늘 맨 뒤에 둔다.
+            const gHouseCount = (list) => new Set(
+                (list || []).map(it => normalizePhoneNumber(it.phone)).filter(Boolean)
+            ).size;
             const apartments = Object.keys(aptGroups).sort((a, b) => {
+                if (a === "푸지2차") return -1;
+                if (b === "푸지2차") return 1;
                 if (a === "기타") return 1;
                 if (b === "기타") return -1;
-                const idxA = customOrder.indexOf(a);
-                const idxB = customOrder.indexOf(b);
-                if (idxA !== -1 && idxB !== -1) return idxA - idxB;
-                if (idxA !== -1) return -1;
-                if (idxB !== -1) return 1;
+                const diff = gHouseCount(aptGroups[b]) - gHouseCount(aptGroups[a]);
+                if (diff !== 0) return diff;
                 return a.localeCompare(b);
             });
             if (apartments.length === 0) {
@@ -1971,13 +1912,27 @@
                                : (target && target.phone) ? normalizePhoneNumber(target.phone)
                                : cleanPhone;
                     const url = `${FIREBASE_DB_URL}orders/${encodeURIComponent(pKey)}/${encodeURIComponent(orderKey)}.json`;
-                    promises.push(
-                        fetch(url, {
-                            method: 'PATCH',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(patchBody)
-                        })
-                    );
+                    // [수정] 예전에는 응답을 확인하지 않아, 저장이 실패해도 화면만 '배달완료'로 바뀌었다.
+                    //  (전체를 다시 받아 확인하던 방식은 매번 450KB가 들어 없앴다)
+                    //  성공할 때까지 3번 다시 시도하고, 끝내 실패하면 아래에서 오류로 알린다.
+                    promises.push((async () => {
+                        let lastErr = null;
+                        for (let a = 1; a <= 3; a++) {
+                            try {
+                                const r = await fetch(url, {
+                                    method: 'PATCH',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify(patchBody)
+                                });
+                                if (!r.ok) throw new Error(`서버 응답 ${r.status}`);
+                                return true;
+                            } catch (e) {
+                                lastErr = e;
+                                await new Promise(res => setTimeout(res, 400 * a));
+                            }
+                        }
+                        throw new Error(`배달완료 저장 실패: ${lastErr ? lastErr.message : ''}`);
+                    })());
                 });
 
                 await Promise.all(promises);
@@ -2005,10 +1960,12 @@
                     window.location.href = smsUrl;
                 }, 800);
 
-                await loadData(true); // 방금 처리한 내용을 반영해야 하므로 1분 제한 무시
+                // [수정] 여기서 전체 주문(약 450KB)을 다시 받고 있었다. 바로 위에서 rawOrders와 화면을
+                //  이미 고쳐 놓았으므로 다시 받을 이유가 없다. 필요하면 '🔄 갱신'을 누른다.
             } catch (e) {
                 console.error(e);
-                showToast("오류가 발생했습니다.");
+                // 저장에 실패했으면 화면도 그대로 둔다(회색 전환은 위에서 성공한 뒤에만 한다)
+                showToast("⚠️ 배달완료 처리에 실패했습니다. 다시 시도해 주세요.");
             } finally {
                 hideLoader();
             }
@@ -2064,11 +2021,13 @@
                         if (!res.ok) throw new Error("Firebase 전송 실패");
 
                         // 실제 이미지 데이터는 delivery_photos 노드에 별도 저장
-                        await fetch(`${FIREBASE_DB_URL}delivery_photos/${encodeURIComponent(pKey)}/${encodeURIComponent(orderKey)}.json`, {
+                        // [수정] 사진 저장 응답도 확인한다. 예전에는 사진이 안 올라가도 완료로 처리됐다.
+                        const pr = await fetch(`${FIREBASE_DB_URL}delivery_photos/${encodeURIComponent(pKey)}/${encodeURIComponent(orderKey)}.json`, {
                             method: 'PUT',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({ photo: compressedBase64 })
                         });
+                        if (!pr.ok) throw new Error(`사진 저장 실패 (서버 응답 ${pr.status})`);
                     });
                     promises.push(p);
                 });
@@ -2104,10 +2063,11 @@
                     window.location.href = smsUrl;
                 }, 800);
 
-                await loadData(true); // 방금 처리한 내용을 반영해야 하므로 1분 제한 무시
+                // [수정] 여기서 전체 주문(약 450KB)을 다시 받고 있었다. 바로 위에서 rawOrders와 화면을
+                //  이미 고쳐 놓았으므로 다시 받을 이유가 없다. 필요하면 '🔄 갱신'을 누른다.
             } catch (e) {
                 console.error(e);
-                showToast("사진 업로드 실패");
+                showToast("⚠️ 사진 업로드에 실패했습니다. 배달완료 처리도 되지 않았습니다.");
             } finally {
                 hideLoader();
                 event.target.value = "";
@@ -2194,15 +2154,11 @@
         }
 
         window.onload = function () {
+            // [수정] 앱을 열 때 한 번만 받는다.
+            //  예전에는 화면이 켜지거나(visibilitychange) 다른 앱에서 돌아올 때(pageshow)마다
+            //  전체 주문(약 450KB)을 다시 받아, 문자·사진·지도로 오갈 때마다 데이터가 크게 나갔다.
+            //  이제 최신 주문이 필요하면 위의 '🔄 갱신' 버튼을 누른다.
             loadData();
-            document.addEventListener("visibilitychange", () => {
-                if (document.visibilityState === "visible") {
-                    loadData(false);
-                }
-            });
-            window.addEventListener("pageshow", () => {
-                loadData(false);
-            });
         };
     </script>
 </body>
