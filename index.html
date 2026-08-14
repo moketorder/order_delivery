@@ -1021,8 +1021,24 @@
             return false;
         }
 
+        // [신규] 마지막으로 주문을 받아온 시각.
+        //  이 앱은 화면이 켜지거나(visibilitychange) 다른 앱에서 돌아올 때(pageshow) 다시 받는데,
+        //  한 번에 전체 주문(약 480KB)을 통째로 받는다. 배달 중에는 문자·사진·지도로 왔다 갔다 하고
+        //  화면도 수시로 켜지므로, 그때마다 받으면 하루에 수백 MB가 나간다.
+        //  주문 마감 뒤에 배달을 나가므로 1분 간격이면 충분하다. (새로고침 버튼은 이 제한을 무시)
+        let _lastLoadAt = 0;
+        const LOAD_MIN_GAP_MS = 60 * 1000;
+
         // DB에서 데이터 로드
         async function loadData(isManualRefresh = false) {
+            // 방금 받아왔으면 건너뛴다. 사장님이 직접 누른 새로고침은 항상 받는다.
+            if (!isManualRefresh && _lastLoadAt && (Date.now() - _lastLoadAt) < LOAD_MIN_GAP_MS) {
+                const left = Math.ceil((LOAD_MIN_GAP_MS - (Date.now() - _lastLoadAt)) / 1000);
+                console.log(`최근에 받아와서 건너뜁니다 (${left}초 뒤 갱신 가능)`);
+                return;
+            }
+            _lastLoadAt = Date.now();
+
             showLoader("데이터를 동기화하고 있습니다...");
 
             const syncTimeTextEl = document.getElementById('sync-time-text');
@@ -1142,6 +1158,8 @@
                 buildDateTabs();
             } catch (e) {
                 console.error(e);
+                // 실패했으면 1분을 기다리지 않고 다음 기회에 바로 다시 받도록 되돌린다
+                _lastLoadAt = 0;
                 showToast("데이터를 로드하지 못했습니다.");
                 if (syncTimeTextEl) syncTimeTextEl.innerText = "동기화 실패";
                 if (syncDotEl) syncDotEl.style.backgroundColor = "var(--red)";
@@ -1987,7 +2005,7 @@
                     window.location.href = smsUrl;
                 }, 800);
 
-                await loadData(false);
+                await loadData(true); // 방금 처리한 내용을 반영해야 하므로 1분 제한 무시
             } catch (e) {
                 console.error(e);
                 showToast("오류가 발생했습니다.");
@@ -2086,7 +2104,7 @@
                     window.location.href = smsUrl;
                 }, 800);
 
-                await loadData(false);
+                await loadData(true); // 방금 처리한 내용을 반영해야 하므로 1분 제한 무시
             } catch (e) {
                 console.error(e);
                 showToast("사진 업로드 실패");
