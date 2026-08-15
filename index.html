@@ -768,6 +768,19 @@
         let activeApartment = ""; // 선택된 아파트
         let activeDong = ""; // 선택된 동
 
+        // [신규] 탭을 옮겼다 돌아오면 보던 자리를 그대로 보여 준다.
+        //  예전에는 어느 단계를 건드리든 그 아래가 전부 '전체'로 풀려서,
+        //  배달 중이던 날짜·아파트·동을 매번 다시 찾아 눌러야 했다.
+        //  단계마다 '어느 부모 밑에서 무엇을 보고 있었는지'를 따로 적어 둔다.
+        //   월 → 날짜 → 아파트 → 동
+        const lastDayByMonth = {};   // "2026년 8월"        → "13일"
+        const lastAptByDay = {};     // "2026년 8월 13일"   → "푸지2차"
+        const lastDongByApt = {};    // "2026년 8월 13일|푸지2차" → "03동"
+
+        const gMonthKey = () => `${currentYear} ${currentMonth}`;
+        const gDayKey = () => `${currentYear} ${currentMonth} ${currentDay}`;
+        const gAptKey = (apt) => `${gDayKey()}|${apt}`;
+
         let activeUploadPhone = ""; // 사진 업로드 타겟 주문
         let activeUploadKey = "";
 
@@ -1189,10 +1202,14 @@
         }
 
         function handleMonthChange(value) {
+            // 떠나기 전에 이 달에서 보던 날짜를 적어 둔다
+            if (currentYear && currentMonth && currentDay) lastDayByMonth[gMonthKey()] = currentDay;
+
             const parts = value.split(' '); // "2026년 7월" -> ["2026년", "7월"]
             currentYear = parts[0];
             currentMonth = parts[1];
-            currentDay = "전체";
+            // [수정] 그 달에서 마지막으로 보던 날짜로 돌아간다 (처음 가는 달이면 아래 buildDateTabs가 오늘로 잡는다)
+            currentDay = lastDayByMonth[gMonthKey()] || "";
 
             buildDateTabs();
         }
@@ -1309,13 +1326,18 @@
                     btn.title = '오늘';
                 }
                 btn.onclick = () => {
+                    // 떠나기 전에 이 날짜에서 보던 아파트를 적어 둔다
+                    if (activeApartment) lastAptByDay[gDayKey()] = activeApartment;
+
                     // [변경] 토글: 같은 날짜 재클릭 시 해제 → 전체
                     currentDay = (currentDay === day) ? "전체" : day;
                     document.querySelectorAll('#date-tabs .date-tab-btn').forEach(b => b.classList.remove('active'));
                     if (currentDay === day) btn.classList.add('active');
 
-                    activeApartment = "";
-                    activeDong = "전체";
+                    lastDayByMonth[gMonthKey()] = currentDay;
+                    // [수정] 그 날짜에서 마지막으로 보던 아파트·동으로 돌아간다
+                    activeApartment = lastAptByDay[gDayKey()] || "";
+                    activeDong = activeApartment ? (lastDongByApt[gAptKey(activeApartment)] || "전체") : "전체";
                     renderFilteredData();
                 };
                 dateContainer.appendChild(btn);
@@ -1455,9 +1477,14 @@
             }
 
             if (!activeApartment) {
-                activeApartment = "전체";
+                // 이 날짜에서 마지막으로 보던 아파트가 있으면 그리로 돌아간다
+                const remembered = lastAptByDay[gDayKey()];
+                activeApartment = (remembered && apartments.includes(remembered)) ? remembered : "전체";
+                if (activeApartment !== "전체") activeDong = lastDongByApt[gAptKey(activeApartment)] || "전체";
             } else if (activeApartment !== "전체" && !apartments.includes(activeApartment)) {
+                // 기억해 둔 아파트가 이번 날짜엔 배달이 없을 때만 전체로 되돌린다
                 activeApartment = "전체";
+                lastAptByDay[gDayKey()] = "전체";
             }
 
             // [변경] '전체' 버튼 제거 — 아파트 토글로 대체(아무 아파트도 선택 안 하면 전체 표시)
@@ -1466,15 +1493,18 @@
                 btn.className = `btn-select apt-btn ${apt === activeApartment ? 'active' : ''}`;
                 btn.innerHTML = `<span style="display:block; line-height:1.15;">${apt}</span><span style="display:block; font-size:11px; font-weight:800; line-height:1.15; opacity:0.85;">${getDeliveryProgressText(aptGroups[apt])}</span>`;
                 btn.onclick = () => {
-                    activeDong = "전체"; // 아파트 변경 시 동을 "전체"로 설정
+                    // [수정] 그 아파트에서 마지막으로 보던 동으로 되돌아간다 (없으면 전체)
+                    activeDong = lastDongByApt[gAptKey(apt)] || "전체";
                     if (activeApartment === apt) {
                         // [변경] 토글 해제 → 전체(선택 없음, 하이라이트 없음)
                         activeApartment = "전체";
+                        lastAptByDay[gDayKey()] = "전체";
                         document.querySelectorAll('.apt-btn').forEach(b => b.classList.remove('active'));
                         document.getElementById('dong-section').style.display = 'none';
                         renderOrderCards(filtered);
                     } else {
                         activeApartment = apt;
+                        lastAptByDay[gDayKey()] = apt;
                         document.querySelectorAll('.apt-btn').forEach(b => b.classList.remove('active'));
                         btn.classList.add('active');
                         renderDongButtons(aptGroups[apt]);
@@ -1529,6 +1559,10 @@
 
             if (!activeDong) {
                 activeDong = "전체";
+            } else if (activeDong !== "전체" && !dongs.includes(activeDong)) {
+                // 기억해 둔 동이 이번 날짜엔 배달이 없을 때만 전체로 되돌린다
+                activeDong = "전체";
+                lastDongByApt[gAptKey(activeApartment)] = "전체";
             }
 
             // "전체" 버튼 생성
@@ -1537,6 +1571,7 @@
             allBtn.innerText = `전체 ${getDeliveryProgressText(aptOrders)}`;
             allBtn.onclick = () => {
                 activeDong = "전체";
+                lastDongByApt[gAptKey(activeApartment)] = "전체"; // 이 아파트에서 마지막으로 본 동
                 document.querySelectorAll('.dong-btn').forEach(b => b.classList.remove('active'));
                 allBtn.classList.add('active');
                 renderOrderCards(aptOrders);
@@ -1549,6 +1584,7 @@
                 btn.innerText = `${dong} ${getDeliveryProgressText(dongGroups[dong])}`;
                 btn.onclick = () => {
                     activeDong = dong;
+                    lastDongByApt[gAptKey(activeApartment)] = dong; // 이 아파트에서 마지막으로 본 동
                     document.querySelectorAll('.dong-btn').forEach(b => b.classList.remove('active'));
                     btn.classList.add('active');
                     renderOrderCards(dongGroups[dong]);
