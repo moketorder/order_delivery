@@ -2118,7 +2118,14 @@
             if (!photoData) {
                 showLoader("사진 가져오는 중...");
                 try {
-                    const cleanPhone = String(phone).replace(/\D/g, "");
+                    // [수정] 사진은 저장할 때 대표키(서랍 이름, firebasePhoneKey)로 넣는다.
+                    //  찾을 때도 같은 값으로 찾아야 두 값이 다른 손님의 사진이 보인다.
+                    const raw = String(phone || "").replace(/\D/g, "");
+                    const hit = (rawOrders || []).find(o =>
+                        String(o.firebasePhoneKey || "").replace(/\D/g, "") === raw
+                        || String(o.phone || "").replace(/\D/g, "") === raw
+                    );
+                    const cleanPhone = (hit && String(hit.firebasePhoneKey || "").replace(/\D/g, "")) || raw;
                     const res = await fetch(`${FIREBASE_DB_URL}delivery_photos/${cleanPhone}/${orderKey}.json`);
                     if (res.ok) {
                         const data = await res.json();
