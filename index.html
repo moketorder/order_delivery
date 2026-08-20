@@ -389,7 +389,34 @@
             font-weight: 700;
             color: var(--text-main);
             line-height: 1.4;
+            display: flex;
+            align-items: flex-start;
+            gap: 8px;
         }
+
+        .address-text .addr-full {
+            flex: 1 1 auto;
+            min-width: 0;
+            word-break: break-all;
+        }
+
+        /* [신규] 빌라 등 풀주소 옆 복사 버튼 — 손가락으로 누르기 쉽게 넉넉히 잡는다 */
+        .addr-copy-btn {
+            flex: 0 0 auto;
+            padding: 6px 10px;
+            border: 1.5px solid #bfdbfe;
+            background: #eff6ff;
+            color: #1d4ed8;
+            border-radius: 8px;
+            font-size: 12px;
+            font-weight: 800;
+            cursor: pointer;
+            white-space: nowrap;
+            line-height: 1.2;
+        }
+
+        .addr-copy-btn:active { background: #dbeafe; }
+        .addr-copy-btn:disabled { opacity: 0.7; cursor: default; }
 
         .address-box {
             background: #f8fafc;
@@ -717,6 +744,13 @@
             return clean;
         }
 
+        // [신규] 매장에서 '픽업완료'로 넘긴 건인지. 주문관리에서 픽업 처리하면 status가 '픽업'이 된다.
+        //  배달 상품이라도 손님이 직접 받아 갔으면 기사님이 배달할 게 없으므로 완료로 취급한다.
+        function gIsPickedUp(it) {
+            const s = String((it && (it.__origStatus !== undefined ? it.__origStatus : it.status)) || "").trim();
+            return s === '픽업' || s === '픽업완료';
+        }
+
         // 고객 카드 배달 완료 수 / 전체 수 (예: "(완료수/전체수)") 표기 헬퍼
         function getDeliveryProgressText(ordersList) {
             if (!ordersList || ordersList.length === 0) return "(0/0)";
@@ -888,7 +922,86 @@
                     if (w.length > bestLen && normalized.includes(w)) { best = apt.name; bestLen = w.length; }
                 }
             }
+            // 대분류(아파트 묶음)는 예전 그대로. 못 찾으면 '기타'로 둔다.
+            //  묶어 둔 구역 이름은 아래 동(棟) 자리에 따로 넣는다.
             return best || "기타";
+        }
+
+        /* [신규] 주문관리에서 사장님이 직접 묶어 둔 구역(빌라·다세대 모음)을 그대로 가져온다.
+           배달기사 화면은 자체 아파트 표만 봐서, 묶어 둔 빌라가 전부 '기타'로 뜨고 있었다. */
+        let APARTMENT_CUSTOM = [];
+
+        function gNormAddr(s) {
+            return String(s || "").replace(/\s+/g, "").trim();
+        }
+
+        async function loadApartmentCustom() {
+            try {
+                const res = await fetch(`${FIREBASE_DB_URL}apartment_custom.json?t=${Date.now()}`);
+                if (!res.ok) throw new Error(`서버 응답 ${res.status}`);
+                const data = await res.json();
+                APARTMENT_CUSTOM = Object.entries(data || {}).map(([key, v]) => {
+                    v = v || {};
+                    const list = Array.isArray(v.matches) ? v.matches
+                               : (v.matches && typeof v.matches === 'object') ? Object.values(v.matches)
+                               : (v.match ? [v.match] : []);
+                    return { key, name: String(v.name || "").trim(), matches: [...new Set(list.map(gNormAddr).filter(Boolean))] };
+                }).filter(g => g.name && g.matches.length > 0);
+            } catch (e) {
+                console.warn("구역 자료 불러오기 실패:", e);
+            }
+            return APARTMENT_CUSTOM;
+        }
+
+        // 주소가 어느 묶음 구역에 드는지. 긴 조각이 이긴다(짧은 조각이 남의 주소를 삼키지 않게).
+        function findCustomZoneName(address) {
+            const addr = gNormAddr(address);
+            if (!addr) return "";
+            let best = "", bestLen = 0;
+            APARTMENT_CUSTOM.forEach(g => {
+                g.matches.forEach(m => {
+                    if (m.length > bestLen && addr.includes(m)) { best = g.name; bestLen = m.length; }
+                });
+            });
+            return best;
+        }
+
+        /* [신규] 아파트로 안 잡히는 주소(빌라·다세대 등)인지.
+           아파트는 '더샵 101동 1502호'처럼 이름과 동·호수만 알면 찾아가지만,
+           빌라는 도로명 전체를 내비에 찍어야 해서 복사 버튼이 필요하다. */
+        //  [수정] 묶어 둔 구역으로 잡힌 주소도 빌라·다세대이므로 복사 버튼이 필요하다.
+        //   (구역 이름이 붙는 순간 '기타'가 아니게 되어 버튼이 사라지던 문제)
+        function needsAddrCopy(address) {
+            if (!address) return false;
+            if (findCustomZoneName(address)) return true;      // 사장님이 묶어 둔 빌라
+            return extractApartmentName(address) === "기타";    // 아무 데도 안 잡힌 주소
+        }
+
+        // [신규] 주소를 클립보드에 담는다. 눌렀다는 것이 보이도록 버튼 글자를 잠깐 바꾼다.
+        async function copyAddress(btn, encoded) {
+            const text = decodeURIComponent(encoded).trim();
+            if (!text) return;
+            let ok = false;
+            try {
+                await navigator.clipboard.writeText(text);
+                ok = true;
+            } catch (e) {
+                // https가 아니거나 권한이 없으면 예전 방식으로 한 번 더 시도한다
+                try {
+                    const ta = document.createElement('textarea');
+                    ta.value = text;
+                    ta.style.cssText = 'position:fixed; left:-9999px; top:0;';
+                    document.body.appendChild(ta);
+                    ta.select();
+                    ok = document.execCommand('copy');
+                    document.body.removeChild(ta);
+                } catch (e2) { ok = false; }
+            }
+
+            const orig = btn.innerText;
+            btn.innerText = ok ? '✅ 복사됨' : '❌ 실패';
+            btn.disabled = true;
+            setTimeout(() => { btn.innerText = orig; btn.disabled = false; }, 1400);
         }
 
         // 동 번호(숫자) 추출 헬퍼
@@ -1039,7 +1152,10 @@
                             const isDelivery = (it.shippingMethod === '배달주문' || (it.shippingMethod !== '매장픽업' && it.address && String(it.address).trim() !== ""));
                             if (!isDelivery) continue;
 
-                            const isDelivered = (it.delivered === true || it.delivered === "true" || String(it.delivered).toUpperCase() === "TRUE");
+                            // [수정] 배달 상품이라도 사장님이 매장에서 '픽업완료'로 넘겼으면 배달할 게 없다.
+                            //  예전에는 delivered 값만 봐서 기사님 화면에 계속 '미배달'로 남아 있었다.
+                            const isPickedUp = gIsPickedUp(it);
+                            const isDelivered = (it.delivered === true || it.delivered === "true" || String(it.delivered).toUpperCase() === "TRUE") || isPickedUp;
                             if (isDelivered && it.deliveryPhotoTime) {
                                 const photoAge = Date.now() - parseInt(it.deliveryPhotoTime);
                                 if (photoAge > 7 * 24 * 60 * 60 * 1000) {
@@ -1057,7 +1173,8 @@
                                 phone,
                                 orderKey,
                                 ...it,
-                                status: calculatedStatus
+                                status: calculatedStatus,
+                                __pickedUp: isPickedUp
                             });
                         }
                     }
@@ -1158,7 +1275,9 @@
                         const isDelivery = (it.shippingMethod === '배달주문' || (it.shippingMethod !== '매장픽업' && it.address && String(it.address).trim() !== ""));
                         if (!isDelivery) continue;
 
-                        const isDelivered = (it.delivered === true || it.delivered === "true" || String(it.delivered).toUpperCase() === "TRUE");
+                        // [수정] 매장에서 '픽업완료'로 넘긴 건은 배달할 게 없으므로 완료로 본다
+                        const isPickedUp = gIsPickedUp(it);
+                        const isDelivered = (it.delivered === true || it.delivered === "true" || String(it.delivered).toUpperCase() === "TRUE") || isPickedUp;
                         const isStocked = (it.isStocked === true || it.isStocked === "true" || String(it.isStocked).toUpperCase() === "TRUE");
 
                         let calculatedStatus = "대기";
@@ -1170,7 +1289,8 @@
                             phone,
                             orderKey,
                             ...it,
-                            status: calculatedStatus
+                            status: calculatedStatus,
+                            __pickedUp: isPickedUp
                         });
                     }
                 }
@@ -1526,16 +1646,25 @@
             }
         }
 
+        /* [신규] 하위 묶음 이름 — 카드 제목과 같은 기준을 쓴다.
+           묶어 둔 구역(빌라)이면 구역 이름, 아니면 예전처럼 '101동'.
+           '기타' 탭이 동별로 쪼개지던 문제를 여기서 잡는다. (빌라는 '102호'의 첫 숫자를
+           동으로 넘겨짚어 102동·203동처럼 엉뚱한 칸이 잔뜩 생겼다) */
+        function getDongGroupName(item) {
+            const zone = findCustomZoneName(item.address);
+            if (zone) return zone;
+            return formatDongName(getDongNumber(item.addressDetail, item.address));
+        }
+
         // 동 버튼 생성
         function renderDongButtons(aptOrders) {
             const dongContainer = document.getElementById('dong-buttons');
             dongContainer.innerHTML = '';
 
-            // 아파트 주문 건 중 동 이름으로 분류
+            // 아파트 주문 건 중 동 이름으로 분류 (묶어 둔 구역은 그 이름으로)
             const dongGroups = {};
             aptOrders.forEach(item => {
-                const rawDong = getDongNumber(item.addressDetail, item.address);
-                const dongFormatted = formatDongName(rawDong); // "1동", "2동" 등
+                const dongFormatted = getDongGroupName(item);
                 if (!dongGroups[dongFormatted]) {
                     dongGroups[dongFormatted] = [];
                 }
@@ -1638,11 +1767,16 @@
 
             // 동 순 오름차순 -> 동이 같으면 호수 오름차순 정렬 유틸
             const sortOrdersByDongAndHo = (a, b) => {
-                const dongA = getDongNumber(a.addressDetail, a.address);
-                const dongB = getDongNumber(b.addressDetail, b.address);
-
-                if (dongA !== dongB) {
-                    return dongA - dongB;
+                // [수정] 묶어 둔 구역(빌라)은 이름으로 묶어 정렬한다.
+                //  동 번호로 세면 '102호'의 첫 숫자를 동으로 넘겨짚어 순서가 뒤죽박죽이 된다.
+                const zA = findCustomZoneName(a.address);
+                const zB = findCustomZoneName(b.address);
+                if (zA || zB) {
+                    if (zA !== zB) return String(zA || '힣').localeCompare(String(zB || '힣'), 'ko');
+                } else {
+                    const dongA = getDongNumber(a.addressDetail, a.address);
+                    const dongB = getDongNumber(b.addressDetail, b.address);
+                    if (dongA !== dongB) return dongA - dongB;
                 }
 
                 const hoA = extractHoNum(a);
@@ -1743,7 +1877,9 @@
             });
 
             // 공동현관 비번 정보 로드 (동이 "전체"가 아닐 때만 노출) — [변경] 1·2 라인 / 3·4 라인 두 박스로 분리
-            if (activeDong !== "전체" && activeApartment !== "전체") {
+            // [수정] '기타'는 빌라·다세대 모음이라 동마다 라인별 공동현관 비번이 없다.
+            //  집집마다 비번이 달라 이 칸이 오히려 헷갈려서 빼둔다. (비번은 주문의 공동현관 입력값으로 본다)
+            if (activeDong !== "전체" && activeApartment !== "전체" && activeApartment !== "기타") {
                 const pwdMap = entrancePasswords[activeApartment] || {};
                 const legacy = pwdMap[activeDong] || "";            // 기존 단일 비번(하위호환)
                 // [신규] 기존 필드를 호수 끝자리로 라인 자동 분류: 1·2호=1·2라인, 3·4호=3·4라인, 호수 없는 공통코드는 양쪽에
@@ -1795,12 +1931,19 @@
 
                 // 동 원본 번호 및 아파트 표시 분기
                 const rawDong = getDongNumber(representativeItem.addressDetail, representativeItem.address);
+                /* [신규] 빌라·다세대는 동 번호가 없어 '[기타] 102호'로만 떠서 어느 집인지 알 수 없었다.
+                   대분류는 '기타' 그대로 두고, 동(棟) 자리에 사장님이 묶어 둔 구역 이름을 넣는다. */
+                //  묶어 둔 구역이면 구역 이름을 먼저 쓴다. 빌라는 상세주소가 '102호'뿐인데
+                //  getDongNumber가 그 첫 숫자를 동으로 넘겨짚어 '102동 102호'가 되곤 한다.
+                const zoneName = findCustomZoneName(representativeItem.address);
+                const dongLabel = zoneName ? `${zoneName} ` : (rawDong ? `${rawDong}동 ` : '');
+
                 let fullDongHo = "";
                 if (activeApartment === "전체") {
                     const aptName = extractApartmentName(representativeItem.address);
-                    fullDongHo = `[${aptName}] ${rawDong ? `${rawDong}동 ` : ''}${hoLabel}`;
+                    fullDongHo = `[${aptName}] ${dongLabel}${hoLabel}`;
                 } else {
-                    fullDongHo = rawDong ? `${rawDong}동 ${hoLabel}` : hoLabel;
+                    fullDongHo = `${dongLabel}${hoLabel}`;
                 }
 
                 // 전화번호 포맷 정규화
@@ -1848,7 +1991,14 @@
                         <span class="customer-name">${customer.name} 고객님</span>
                     </div>
                     <div class="rider-card-body">
-                        <div class="address-text">${representativeItem.address || ""} ${representativeItem.addressDetail || ""}</div>
+                        <div class="address-text">
+                            <span class="addr-full">${representativeItem.address || ""} ${representativeItem.addressDetail || ""}</span>
+                            ${needsAddrCopy(representativeItem.address) ? `
+                                <!-- [수정] 내비에 찍는 건 도로명주소라 상세주소(호수)는 빼고 주소만 복사한다 -->
+                                <button type="button" class="addr-copy-btn"
+                                    onclick="copyAddress(this, '${encodeURIComponent(String(representativeItem.address || "").trim())}')">📋 복사</button>
+                            ` : ''}
+                        </div>
                         ${customer.entrance ? `
                             <div class="address-box" style="background:#eff6ff; border:1px solid #bfdbfe; color:#1d4ed8;">
                                 🚪 공동현관 입력값: <b>${customer.entrance}</b>
@@ -2201,7 +2351,11 @@
             //  예전에는 화면이 켜지거나(visibilitychange) 다른 앱에서 돌아올 때(pageshow)마다
             //  전체 주문(약 450KB)을 다시 받아, 문자·사진·지도로 오갈 때마다 데이터가 크게 나갔다.
             //  이제 최신 주문이 필요하면 위의 '🔄 갱신' 버튼을 누른다.
-            loadData();
+            // [신규] 묶어 둔 구역 이름을 먼저 받아 둔다. 몇 KB라 부담이 없고,
+            //  이게 없으면 빌라가 전부 '기타'로 떠서 어느 집인지 알 수 없다.
+            loadApartmentCustom()
+                .catch(e => console.warn('구역 자료 실패:', e))
+                .finally(() => loadData());
         };
     </script>
 </body>
