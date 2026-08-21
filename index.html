@@ -857,6 +857,10 @@
         //   roads: 도로명 + 건물번호 (공백 없이)
         //   lots : 도로명주소가 안 적혀 온 주소를 위한 지번
         //   words: 위 둘로 못 찾을 때만 보는 이름조각 (긴 것부터 맞춘다)
+        /* [수정] 아래 표는 서버(apartment_table)를 못 받았을 때 쓰는 예비본이다.
+           예전에는 이 표가 주문관리에도 따로 한 벌 있어서, 한쪽만 고치면 다른 쪽은 그대로였다.
+           실제로 스타힐스는 주문관리에만 도로명이 채워져 배달기사에서만 '기타'로 떨어졌다.
+           이제 서버 표 한 벌을 두 화면이 같이 읽는다. */
         const APT_TABLE = [
             { name: "푸지2차",     roads: ["미사강변한강로60"],  lots: ["선동433"],     words: ["미사강변2차푸르지오", "2차푸르지오"] },
             { name: "푸지1차",     roads: ["미사강변대로165"],   lots: [],              words: ["미사강변1차푸르지오", "1차푸르지오", "미사강변푸르지오", "푸르지오"] },
@@ -882,7 +886,9 @@
             { name: "아데나",      roads: [], lots: [], words: ["아데나"] },
             { name: "호반",        roads: [], lots: [], words: ["호반"] },
             { name: "동원",        roads: [], lots: [], words: ["동원"] },
-            { name: "스타힐스",    roads: [], lots: [], words: ["스타힐스"] },
+            // [수정] 미사강변대로240 = 미사강변도시8단지(스타힐스). 주소에 '스타힐스'가 안 적혀 들어와
+            //  이름조각으로는 못 찾고 '기타'로 떨어졌다. 주문관리와 같게 도로명·단지명으로도 잡는다.
+            { name: "스타힐스",    roads: ["미사강변대로240"], lots: [], words: ["스타힐스", "미사강변도시8단지"] },
             // 짧은 '자이'가 '리버뷰자이'를 가로채지 않게 맨 뒤에 둔다.
             { name: "자이",        roads: [], lots: [], words: ["자이"] }
         ];
@@ -925,6 +931,39 @@
             // 대분류(아파트 묶음)는 예전 그대로. 못 찾으면 '기타'로 둔다.
             //  묶어 둔 구역 이름은 아래 동(棟) 자리에 따로 넣는다.
             return best || "기타";
+        }
+
+        /* [신규] 아파트 표를 서버에서 받아 위 예비본을 갈아끼운다.
+           한 벌만 고치면 주문관리와 배달기사가 같이 바뀐다.
+           서버 항목의 shortName이 있으면 그걸 화면 이름으로 쓴다(푸르지오2차 → 푸지2차). */
+        const APT_TABLE_KEY = 'moket_apt_table';
+
+        function gApplyApartmentTable(rows){
+            if (!Array.isArray(rows) || rows.length === 0) return false;
+            const mapped = rows.filter(r => r && r.name).map(r => ({
+                name: String(r.shortName || r.name),
+                roads: Array.isArray(r.roads) ? r.roads : [],
+                lots: Array.isArray(r.lots) ? r.lots : [],
+                words: Array.isArray(r.keywords) ? r.keywords : (Array.isArray(r.words) ? r.words : [])
+            }));
+            if (!mapped.length) return false;
+            APT_TABLE.length = 0;              // 순서가 판정에 영향을 주므로 통째로 갈아끼운다
+            mapped.forEach(m => APT_TABLE.push(m));
+            return true;
+        }
+
+        async function loadApartmentTable(){
+            // 인터넷이 끊겨도 지난번 표로 굴러가도록 기기에 담아 둔다
+            try {
+                const cached = localStorage.getItem(APT_TABLE_KEY);
+                if (cached) gApplyApartmentTable(JSON.parse(cached));
+            } catch(e){}
+            const res = await fetch(`${FIREBASE_DB_URL}apartment_table.json?t=${Date.now()}`);
+            if (!res.ok) throw new Error(`서버 응답 ${res.status}`);
+            const rows = await res.json();
+            if (gApplyApartmentTable(rows)) {
+                try { localStorage.setItem(APT_TABLE_KEY, JSON.stringify(rows)); } catch(e){}
+            }
         }
 
         /* [신규] 주문관리에서 사장님이 직접 묶어 둔 구역(빌라·다세대 모음)을 그대로 가져온다.
@@ -1020,6 +1059,15 @@
             // 3. 상세주소에서 "101-202" 또는 "101 - 202" 패턴 (하이픈 앞 숫자가 동)
             match = detail.match(/([0-9]+)\s*-\s*[0-9]+/);
             if (match) return parseInt(match[1]);
+
+            /* [신규] 아래 4번은 '첫 숫자를 동으로 친다'는 짐작이라, 동이 없는 빌라에서 호수를 동으로 읽었다.
+               ('301호' → 301동 301호) 짐작이 틀리는 게 뻔한 경우를 먼저 걸러 낸다. */
+            // (가) 호수만 적힌 곳 — 빌라·다세대. 동이 없다.
+            if (/^[0-9]+\s*호/.test(detail)) return 9999;
+            // (나) 층부터 적은 곳 — '3층 301호'의 3은 동이 아니다.
+            if (/^[0-9]+\s*층/.test(detail)) return 9999;
+            // (다) '가동'·'A동'처럼 숫자가 아닌 동이 적힌 곳 — 1번에서 못 잡았으니 뒤 호수를 동으로 읽으면 안 된다.
+            if (/동/.test(detail)) return 9999;
 
             // 4. 상세주소의 첫 번째 숫자 (동 번호로 간주)
             match = detail.match(/^([0-9]+)/);
@@ -2353,9 +2401,10 @@
             //  이제 최신 주문이 필요하면 위의 '🔄 갱신' 버튼을 누른다.
             // [신규] 묶어 둔 구역 이름을 먼저 받아 둔다. 몇 KB라 부담이 없고,
             //  이게 없으면 빌라가 전부 '기타'로 떠서 어느 집인지 알 수 없다.
-            loadApartmentCustom()
-                .catch(e => console.warn('구역 자료 실패:', e))
-                .finally(() => loadData());
+            Promise.all([
+                loadApartmentCustom().catch(e => console.warn('구역 자료 실패:', e)),
+                loadApartmentTable().catch(e => console.warn('아파트 표 실패:', e))
+            ]).finally(() => loadData());
         };
     </script>
 </body>
