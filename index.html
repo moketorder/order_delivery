@@ -688,6 +688,9 @@
                     <input type="text" id="searchInput" class="search-input" placeholder="고객명, 연락처, 호수, 상품명 검색..." onkeyup="handleSearchInput()">
                     <button id="clearSearchBtn" class="clear-search-btn" onclick="clearSearch()">&times;</button>
                 </div>
+                <!-- [신규] 공동현관 비번 조회 — 아파트 → 동 → 비번 -->
+                <button type="button" onclick="openPasswordFinder()" title="공동현관 비번 조회"
+                    style="flex:0 0 auto; width:42px; height:42px; border:1.5px solid #cbd5e1; background:#fff; border-radius:10px; font-size:17px; cursor:pointer; display:flex; align-items:center; justify-content:center;">🚪</button>
             </div>
         </div>
 
@@ -1720,6 +1723,141 @@
             return formatDongName(getDongNumber(item.addressDetail, item.address));
         }
 
+
+        /* ===== [신규] 공동현관 비번 조회 =====
+           지금까지 배달 간 아파트를 모아 보여 주고, 아파트 → 동 → 비번 순으로 파고든다.
+           예전에는 아파트와 동을 둘 다 고른 뒤에야 비번 칸이 떴다. 그래서 오늘 안 가는
+           아파트의 비번은 확인할 방법이 없었다.
+           목록은 받아 둔 주문에서 만든다 (따로 받는 자료가 없어 부담이 없다). */
+        let _pwdView = { apt: '', dong: '' };
+
+        function openPasswordFinder() {
+            _pwdView = { apt: '', dong: '' };
+            const box = document.getElementById('pwd-finder-modal');
+            if (box) box.style.display = 'flex';
+            const s = document.getElementById('pwd-finder-search');
+            if (s) s.value = '';
+            renderPasswordFinder();
+        }
+
+        function closePasswordFinder() {
+            const box = document.getElementById('pwd-finder-modal');
+            if (box) box.style.display = 'none';
+        }
+
+        function pwdFinderBack() {
+            if (_pwdView.dong) _pwdView.dong = '';
+            else if (_pwdView.apt) _pwdView.apt = '';
+            renderPasswordFinder();
+        }
+
+        function pwdPickApt(apt) { _pwdView = { apt, dong: '' }; renderPasswordFinder(); }
+        function pwdPickDong(dong) { _pwdView.dong = dong; renderPasswordFinder(); }
+
+        /* 배달 간 아파트 → 동 → 집 수. 받아 둔 주문 전체에서 만든다.
+           비번만 등록해 두고 배달 기록이 없는 아파트도 빠지지 않게 함께 넣는다. */
+        function gPwdTree() {
+            const tree = {};
+            (rawOrders || []).forEach(it => {
+                if (!it) return;
+                const apt = extractApartmentName(it.address || '');
+                if (!apt) return;
+                const dong = getDongGroupName(it) || '(동 없음)';
+                if (!tree[apt]) tree[apt] = {};
+                if (!tree[apt][dong]) tree[apt][dong] = new Set();
+                tree[apt][dong].add(normalizePhoneNumber(it.phone) || Math.random());
+            });
+            Object.keys(entrancePasswords || {}).forEach(apt => {
+                if (!tree[apt]) tree[apt] = {};
+                Object.keys(entrancePasswords[apt] || {}).forEach(k => {
+                    const dong = String(k).replace(/_(1-2|3-4)라인$/, '');
+                    if (!tree[apt][dong]) tree[apt][dong] = new Set();
+                });
+            });
+            return tree;
+        }
+
+        // 그 동에 적어 둔 비번들 (라인별로 나눠 저장한 것까지 함께 본다)
+        function gPwdOf(apt, dong) {
+            const m = (entrancePasswords || {})[apt] || {};
+            return {
+                하나: String(m[dong] || '').trim(),
+                line12: String(m[`${dong}_1-2라인`] || '').trim(),
+                line34: String(m[`${dong}_3-4라인`] || '').trim()
+            };
+        }
+
+        function renderPasswordFinder() {
+            const body = document.getElementById('pwd-finder-body');
+            const title = document.getElementById('pwd-finder-title');
+            const back = document.getElementById('pwd-finder-back');
+            if (!body) return;
+
+            const q = String(document.getElementById('pwd-finder-search')?.value || '').trim().toLowerCase();
+            const tree = gPwdTree();
+            const has = (apt, dong) => { const p = gPwdOf(apt, dong); return !!(p.하나 || p.line12 || p.line34); };
+
+            if (back) back.style.display = (_pwdView.apt || _pwdView.dong) ? '' : 'none';
+
+            // 3단계 — 비번 보기
+            if (_pwdView.apt && _pwdView.dong) {
+                if (title) title.innerText = `${_pwdView.apt} ${_pwdView.dong}`;
+                const p = gPwdOf(_pwdView.apt, _pwdView.dong);
+                const row = (label, val) => val
+                    ? `<div style="margin-bottom:8px;"><div style="font-size:11px; font-weight:800; color:#94a3b8; margin-bottom:3px;">${label}</div>`
+                      + `<div style="font-size:26px; font-weight:900; color:#0f172a; letter-spacing:2px; background:#f0fdf4; border:1.5px solid #bbf7d0; border-radius:10px; padding:12px 14px; text-align:center; word-break:break-all;">${gEsc(val)}</div></div>`
+                    : '';
+                const any = p.하나 || p.line12 || p.line34;
+                body.innerHTML = any
+                    ? (row('1·2 라인', p.line12) + row('3·4 라인', p.line34) + (!p.line12 && !p.line34 ? row('비번', p.하나) : (p.하나 && (p.line12 || p.line34) ? row('그 밖에 적어 둔 것', p.하나) : '')))
+                    : `<div style="padding:30px 0; text-align:center; color:#94a3b8; font-size:13px; font-weight:700;">적어 둔 비번이 없습니다.<br><span style="font-size:11.5px;">위에서 아파트·동을 고르면 그 화면에서 적을 수 있습니다.</span></div>`;
+                return;
+            }
+
+            // 2단계 — 동 고르기
+            if (_pwdView.apt) {
+                if (title) title.innerText = _pwdView.apt;
+                const dongs = Object.keys(tree[_pwdView.apt] || {})
+                    .filter(d => !q || d.toLowerCase().includes(q))
+                    .sort((a, b) => (parseInt(a.replace(/\D/g, '')) || 9999) - (parseInt(b.replace(/\D/g, '')) || 9999) || a.localeCompare(b));
+                body.innerHTML = dongs.length === 0
+                    ? `<div style="padding:30px 0; text-align:center; color:#94a3b8; font-weight:700;">동이 없습니다.</div>`
+                    : `<div style="display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:6px;">`
+                      + dongs.map(d => {
+                          const ok = has(_pwdView.apt, d);
+                          return `<button type="button" onclick="pwdPickDong('${gEsc(d).replace(/'/g, "\\'")}')"`
+                            + ` style="padding:12px 6px; border:1.5px solid ${ok ? '#bbf7d0' : '#e2e8f0'}; background:${ok ? '#f0fdf4' : '#fff'}; color:#0f172a; border-radius:10px; font-size:13px; font-weight:800; cursor:pointer;">`
+                            + `${gEsc(d)}${ok ? `<div style="font-size:10px; font-weight:800; color:#15803d; margin-top:2px;">🚪 있음</div>` : `<div style="font-size:10px; font-weight:700; color:#cbd5e1; margin-top:2px;">—</div>`}</button>`;
+                      }).join('') + `</div>`;
+                return;
+            }
+
+            // 1단계 — 아파트 고르기
+            if (title) title.innerText = '🚪 공동현관 비번';
+            const apts = Object.keys(tree)
+                .filter(a => !q || a.toLowerCase().includes(q))
+                .sort((a, b) => {
+                    if (a === '기타') return 1;
+                    if (b === '기타') return -1;
+                    return a.localeCompare(b, "ko");   // [수정] 이름순 (동 개수 순이면 찾을 때마다 자리가 바뀌어 눈에 안 익는다)
+                });
+            body.innerHTML = apts.length === 0
+                ? `<div style="padding:30px 0; text-align:center; color:#94a3b8; font-weight:700;">찾는 아파트가 없습니다.</div>`
+                : `<div style="display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:6px;">`
+                  + apts.map(a => {
+                      const dongs = Object.keys(tree[a]);
+                      const okCount = dongs.filter(d => has(a, d)).length;
+                      return `<button type="button" onclick="pwdPickApt('${gEsc(a).replace(/'/g, "\\'")}')"`
+                        + ` style="padding:12px 10px; border:1.5px solid #e2e8f0; background:#fff; border-radius:10px; text-align:left; cursor:pointer;">`
+                        + `<div style="font-size:14px; font-weight:900; color:#0f172a;">${gEsc(a)}</div>`
+                        + `<div style="font-size:11px; font-weight:700; color:${okCount ? '#15803d' : '#cbd5e1'}; margin-top:3px;">동 ${dongs.length}개 · 비번 ${okCount}개</div></button>`;
+                  }).join('') + `</div>`;
+        }
+
+        function gEsc(s) {
+            return String(s == null ? '' : s)
+                .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        }
         // 동 버튼 생성
         function renderDongButtons(aptOrders) {
             const dongContainer = document.getElementById('dong-buttons');
@@ -2425,6 +2563,22 @@
             ]).finally(() => loadData());
         };
     </script>
+    <!-- [신규] 공동현관 비번 조회 창 — 아파트 → 동 → 비번 -->
+    <div id="pwd-finder-modal" style="display:none; position:fixed; z-index:10050; left:0; top:0; width:100%; height:100%; background:rgba(15,23,42,0.55); align-items:center; justify-content:center; padding:14px; box-sizing:border-box;" onclick="if(event.target===this) closePasswordFinder()">
+        <div style="background:#fff; border-radius:16px; width:100%; max-width:440px; max-height:86vh; display:flex; flex-direction:column; overflow:hidden; box-shadow:0 20px 50px rgba(0,0,0,0.25);">
+            <div style="padding:13px 15px; border-bottom:1px solid #e2e8f0; display:flex; align-items:center; gap:8px;">
+                <button type="button" id="pwd-finder-back" onclick="pwdFinderBack()" style="display:none; flex:0 0 auto; width:34px; height:34px; border:1.5px solid #e2e8f0; background:#fff; color:#475569; border-radius:9px; font-size:15px; font-weight:800; cursor:pointer;">‹</button>
+                <div id="pwd-finder-title" style="flex:1; font-size:15px; font-weight:900; color:#0f172a; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">🚪 공동현관 비번</div>
+                <span onclick="closePasswordFinder()" style="flex:0 0 auto; font-size:24px; font-weight:800; color:#94a3b8; cursor:pointer; line-height:1;">&times;</span>
+            </div>
+            <div style="padding:10px 15px; border-bottom:1px solid #f1f5f9;">
+                <input type="text" id="pwd-finder-search" oninput="renderPasswordFinder()" placeholder="🔍 아파트·동 찾기"
+                    style="width:100%; box-sizing:border-box; height:38px; padding:8px 11px; border:1.5px solid #cbd5e1; border-radius:9px; font-size:13px; font-weight:700;">
+            </div>
+            <div id="pwd-finder-body" style="overflow-y:auto; padding:12px 15px 16px; -webkit-overflow-scrolling:touch;"></div>
+        </div>
+    </div>
+
 </body>
 
 </html>
