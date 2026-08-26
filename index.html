@@ -958,9 +958,27 @@
                 const cached = localStorage.getItem(APT_TABLE_KEY);
                 if (cached) gApplyApartmentTable(JSON.parse(cached));
             } catch(e){}
-            const res = await fetch(`${FIREBASE_DB_URL}apartment_table.json?t=${Date.now()}`);
-            if (!res.ok) throw new Error(`서버 응답 ${res.status}`);
-            const rows = await res.json();
+
+            /* [버그수정] 기본 표(apartment_table)만 받고 있었다. 사장님이 주문관리에서 새로 더한
+               아파트는 apartment_extra 에 따로 쌓이는데 그걸 안 봐서, 새 아파트가 배달기사에서는
+               전부 '기타'로 떨어졌다 (예: 미사강변리슈빌).
+               주문관리와 같은 순서로 — 새로 더한 것을 앞에 두고 기본 표를 뒤에 붙인다. */
+            const [baseRes, extraRes] = await Promise.all([
+                fetch(`${FIREBASE_DB_URL}apartment_table.json?t=${Date.now()}`),
+                fetch(`${FIREBASE_DB_URL}apartment_extra.json?t=${Date.now()}`).catch(() => null)
+            ]);
+            if (!baseRes.ok) throw new Error(`서버 응답 ${baseRes.status}`);
+            const base = (await baseRes.json()) || [];
+
+            let extra = [];
+            try {
+                if (extraRes && extraRes.ok) {
+                    const e = await extraRes.json();
+                    extra = Array.isArray(e) ? e : (e ? Object.values(e) : []);
+                }
+            } catch (e) { console.warn('추가 아파트 로드 실패:', e); }
+
+            const rows = extra.concat(Array.isArray(base) ? base : Object.values(base || {}));
             if (gApplyApartmentTable(rows)) {
                 try { localStorage.setItem(APT_TABLE_KEY, JSON.stringify(rows)); } catch(e){}
             }
@@ -1620,17 +1638,15 @@
             aptContainer.innerHTML = '';
 
             // [수정] 아파트 버튼 순서 — 배달 갈 집이 많은 곳부터.
-            //  예전에는 이름을 손으로 적어 둔 차례대로 놨는데, 새 아파트가 생기거나
-            //  이름이 바뀌면 그 목록을 매번 고쳐 줘야 해서 관리가 안 됐다.
             //  세는 단위는 버튼에 찍히는 숫자와 같은 '집 수'다. 상품 줄 수로 세면
             //  한 집에서 많이 시킨 아파트가 실제보다 앞으로 올라온다.
-            //  물량이 가장 많은 푸지2차는 늘 맨 앞, '기타'는 늘 맨 뒤에 둔다.
+            //  [수정] 예전에는 '푸지2차'를 코드에 박아 늘 맨 앞에 뒀다. 그날 물량이 적어도
+            //   맨 앞에 있어서 순서가 실제와 달랐다. 이제 어느 아파트든 그날 집 수로만 줄 세운다.
+            //   '기타'만 늘 맨 뒤에 둔다 (아파트로 안 잡힌 주소 모음이라 마지막에 도는 편이 낫다).
             const gHouseCount = (list) => new Set(
                 (list || []).map(it => normalizePhoneNumber(it.phone)).filter(Boolean)
             ).size;
             const apartments = Object.keys(aptGroups).sort((a, b) => {
-                if (a === "푸지2차") return -1;
-                if (b === "푸지2차") return 1;
                 if (a === "기타") return 1;
                 if (b === "기타") return -1;
                 const diff = gHouseCount(aptGroups[b]) - gHouseCount(aptGroups[a]);
@@ -1984,7 +2000,9 @@
                 //  묶어 둔 구역이면 구역 이름을 먼저 쓴다. 빌라는 상세주소가 '102호'뿐인데
                 //  getDongNumber가 그 첫 숫자를 동으로 넘겨짚어 '102동 102호'가 되곤 한다.
                 const zoneName = findCustomZoneName(representativeItem.address);
-                const dongLabel = zoneName ? `${zoneName} ` : (rawDong ? `${rawDong}동 ` : '');
+                // 9999는 '동 없음'을 뜻하는 내부 값이다. 그대로 찍으면 '9999동'이 되므로 빈칸으로 둔다.
+                const hasDong = rawDong && rawDong !== 9999;
+                const dongLabel = zoneName ? `${zoneName} ` : (hasDong ? `${rawDong}동 ` : '');
 
                 let fullDongHo = "";
                 if (activeApartment === "전체") {
