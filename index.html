@@ -1732,7 +1732,7 @@
         let _pwdView = { apt: '', dong: '' };
 
         function openPasswordFinder() {
-            _pwdView = { apt: '', dong: '' };
+            _pwdView = { apt: "", dong: "" }; _pwdEdit = false;
             const box = document.getElementById('pwd-finder-modal');
             if (box) box.style.display = 'flex';
             const s = document.getElementById('pwd-finder-search');
@@ -1751,8 +1751,8 @@
             renderPasswordFinder();
         }
 
-        function pwdPickApt(apt) { _pwdView = { apt, dong: '' }; renderPasswordFinder(); }
-        function pwdPickDong(dong) { _pwdView.dong = dong; renderPasswordFinder(); }
+        function pwdPickApt(apt) { _pwdView = { apt, dong: "" }; _pwdEdit = false; renderPasswordFinder(); }
+        function pwdPickDong(dong) { _pwdView.dong = dong; _pwdEdit = false; renderPasswordFinder(); }
 
         /* 배달 간 아파트 → 동 → 집 수. 받아 둔 주문 전체에서 만든다.
            비번만 등록해 두고 배달 기록이 없는 아파트도 빠지지 않게 함께 넣는다. */
@@ -1787,6 +1787,131 @@
             };
         }
 
+        /* ===== [신규] 호수 칸(라인) 다루기 =====
+           비번은 '동 + 호수 범위'마다 하나씩 있다. 저장 키는 `03동_1-2라인` 꼴이다.
+           예전에는 1·2라인과 3·4라인 두 칸만 코드에 박혀 있었는데, 아파트마다 라인 수가
+           달라서 (1~3호, 1~4호처럼) 맞지 않는 곳이 있었다. 이제 범위를 사장님이 정한다.
+
+           · `03동`        → 범위 없는 옛 값. '전체' 칸으로 본다.
+           · `03동_1-2라인` → 1호~2호 칸
+           키 형식은 그대로 두어 예전 자료도 그대로 읽힌다. */
+        function gSlotKey(dong, from, to) {
+            if (from == null || to == null || from === '' || to === '') return dong;
+            return `${dong}_${from}-${to}라인`;
+        }
+
+        // 그 동에 있는 칸들을 범위 순으로 (전체 칸은 맨 뒤)
+        function gSlotsOf(apt, dong) {
+            const map = (entrancePasswords || {})[apt] || {};
+            const out = [];
+            Object.keys(map).forEach(k => {
+                if (k === dong) { out.push({ key: k, from: null, to: null, pwd: String(map[k] || '') }); return; }
+                const m = String(k).match(/^(.+)_(\d+)-(\d+)라인$/);
+                if (m && m[1] === dong) out.push({ key: k, from: parseInt(m[2]), to: parseInt(m[3]), pwd: String(map[k] || '') });
+            });
+            out.sort((a, b) => {
+                if (a.from === null) return 1;
+                if (b.from === null) return -1;
+                return a.from - b.from || a.to - b.to;
+            });
+            return out;
+        }
+
+        function gSlotLabel(s) {
+            if (s.from == null) return '전체';
+            return (s.from === s.to) ? `${s.from}호` : `${s.from} ~ ${s.to}호`;   // [수정] 물결 앞뒤를 띄워 답답해 보이지 않게
+        }
+
+        /* 칸 하나를 저장한다. 범위가 바뀌었으면 옛 키를 지우고 새 키로 옮긴다.
+           (키 이름이 곧 범위라, 범위를 고치는 것은 키를 바꾸는 일이다) */
+        async function savePwdSlot(oldKey, dong, from, to, pwd) {
+            const apt = _pwdView.apt;
+            if (!apt || !dong) return false;
+            const newKey = gSlotKey(dong, from, to);
+            const base = `${FIREBASE_DB_URL}entrance_passwords/${encodeURIComponent(apt)}`;
+            const res = await fetch(`${base}/${encodeURIComponent(newKey)}.json`, {
+                method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(String(pwd || ''))
+            });
+            if (!res.ok) throw new Error('저장 실패 ' + res.status);
+            if (!entrancePasswords[apt]) entrancePasswords[apt] = {};
+            entrancePasswords[apt][newKey] = String(pwd || '');
+
+            if (oldKey && oldKey !== newKey) {
+                await fetch(`${base}/${encodeURIComponent(oldKey)}.json`, { method: 'DELETE' });
+                delete entrancePasswords[apt][oldKey];
+            }
+            try { localStorage.setItem('moket_entrance_passwords_cache', JSON.stringify(entrancePasswords)); } catch (e) {}
+            return true;
+        }
+
+        async function deletePwdSlot(key) {
+            const apt = _pwdView.apt;
+            if (!apt || !key) return;
+            await fetch(`${FIREBASE_DB_URL}entrance_passwords/${encodeURIComponent(apt)}/${encodeURIComponent(key)}.json`, { method: 'DELETE' });
+            if (entrancePasswords[apt]) delete entrancePasswords[apt][key];
+            try { localStorage.setItem('moket_entrance_passwords_cache', JSON.stringify(entrancePasswords)); } catch (e) {}
+        }
+
+        // 지우기는 한 번 더 눌러 확인받는다 (confirm 창은 기기에 따라 막힌다)
+        let _pwdDelArmed = '';
+        function askDeletePwdSlot(key) {
+            if (_pwdDelArmed !== key) {
+                _pwdDelArmed = key;
+                renderPasswordFinder();
+                setTimeout(() => { if (_pwdDelArmed === key) { _pwdDelArmed = ''; renderPasswordFinder(); } }, 5000);
+                return;
+            }
+            _pwdDelArmed = '';
+            (async () => {
+                showLoader('지우는 중...');
+                try { await deletePwdSlot(key); showToast('칸을 지웠습니다.'); }
+                catch (e) { showToast('삭제 실패: ' + e.message); }
+                finally { hideLoader(); renderPasswordFinder(); }
+            })();
+        }
+
+        // 화면에 적은 값을 그대로 저장 (범위·비번 함께)
+        function commitPwdSlot(idx) {
+            const row = document.querySelector(`[data-slot="${idx}"]`);
+            if (!row) return;
+            const oldKey = row.getAttribute('data-key') || '';
+            const f = row.querySelector('[data-f]')?.value.trim();
+            const t = row.querySelector('[data-t]')?.value.trim();
+            const p = row.querySelector('[data-p]')?.value ?? '';
+            const isAll = row.getAttribute('data-all') === '1';
+
+            if (!isAll) {
+                const fn = parseInt(f), tn = parseInt(t);
+                if (isNaN(fn) || isNaN(tn)) { showToast('호수 범위를 숫자로 적어 주세요.'); return; }
+                if (fn > tn) { showToast('앞 숫자가 뒤 숫자보다 큽니다.'); return; }
+            }
+            (async () => {
+                showLoader('저장 중...');
+                try {
+                    await savePwdSlot(oldKey, _pwdView.dong, isAll ? null : parseInt(f), isAll ? null : parseInt(t), p);
+                    showToast('저장했습니다.');
+                    _pwdNewSlot = null;   // 새로 만들던 칸이었으면 접는다
+                } catch (e) { showToast('저장 실패: ' + e.message); }
+                finally { hideLoader(); renderPasswordFinder(); }
+            })();
+        }
+
+        // 새로 만들던 칸을 접는다
+        function cancelNewPwdSlot() { _pwdNewSlot = null; renderPasswordFinder(); }
+
+        // 빈 칸을 하나 더한다 (기존 칸 다음 호수부터)
+        function addPwdSlot() {
+            const slots = gSlotsOf(_pwdView.apt, _pwdView.dong).filter(s => s.from != null);
+            const last = slots.length ? Math.max(...slots.map(s => s.to)) : 0;
+            _pwdNewSlot = { from: last + 1, to: last + 2 };
+            renderPasswordFinder();
+        }
+        let _pwdNewSlot = null;
+
+        // 보기 ↔ 고치기 전환. 창을 새로 열 때는 늘 보기부터 시작한다.
+        let _pwdEdit = false;
+        function togglePwdEdit(on) { _pwdEdit = !!on; _pwdNewSlot = null; _pwdDelArmed = ""; renderPasswordFinder(); }
+
         function renderPasswordFinder() {
             const body = document.getElementById('pwd-finder-body');
             const title = document.getElementById('pwd-finder-title');
@@ -1795,63 +1920,107 @@
 
             const q = String(document.getElementById('pwd-finder-search')?.value || '').trim().toLowerCase();
             const tree = gPwdTree();
-            const has = (apt, dong) => { const p = gPwdOf(apt, dong); return !!(p.하나 || p.line12 || p.line34); };
+            const has = (apt, dong) => gSlotsOf(apt, dong).some(s => String(s.pwd || '').trim());
 
             if (back) back.style.display = (_pwdView.apt || _pwdView.dong) ? '' : 'none';
 
-            // 3단계 — 비번 보기
+            /* 줄 하나짜리 목록. 상자를 겹겹이 두르면 좁은 화면에서 조잡해 보여서,
+               얇은 가로선으로만 나누고 오른쪽 끝에 딸림 정보를 흐리게 둔다. */
+            const listRow = (onclick, left, right, dim) =>
+                `<div onclick="${onclick}" style="display:flex; align-items:center; gap:10px; padding:13px 4px; border-bottom:1px solid #f1f5f9; cursor:pointer;">`
+                + `<span style="flex:1; min-width:0; font-size:15px; font-weight:800; color:${dim ? '#94a3b8' : '#0f172a'}; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${left}</span>`
+                + (right ? `<span style="flex:0 0 auto; font-size:11.5px; font-weight:700; color:#94a3b8;">${right}</span>` : '')
+                + `<span style="flex:0 0 auto; color:#cbd5e1; font-size:13px;">›</span></div>`;
+
+            // ── 3단계: 비번 보기 / 고치기
             if (_pwdView.apt && _pwdView.dong) {
                 if (title) title.innerText = `${_pwdView.apt} ${_pwdView.dong}`;
-                const p = gPwdOf(_pwdView.apt, _pwdView.dong);
-                const row = (label, val) => val
-                    ? `<div style="margin-bottom:8px;"><div style="font-size:11px; font-weight:800; color:#94a3b8; margin-bottom:3px;">${label}</div>`
-                      + `<div style="font-size:26px; font-weight:900; color:#0f172a; letter-spacing:2px; background:#f0fdf4; border:1.5px solid #bbf7d0; border-radius:10px; padding:12px 14px; text-align:center; word-break:break-all;">${gEsc(val)}</div></div>`
-                    : '';
-                const any = p.하나 || p.line12 || p.line34;
-                body.innerHTML = any
-                    ? (row('1·2 라인', p.line12) + row('3·4 라인', p.line34) + (!p.line12 && !p.line34 ? row('비번', p.하나) : (p.하나 && (p.line12 || p.line34) ? row('그 밖에 적어 둔 것', p.하나) : '')))
-                    : `<div style="padding:30px 0; text-align:center; color:#94a3b8; font-size:13px; font-weight:700;">적어 둔 비번이 없습니다.<br><span style="font-size:11.5px;">위에서 아파트·동을 고르면 그 화면에서 적을 수 있습니다.</span></div>`;
+                const slots = gSlotsOf(_pwdView.apt, _pwdView.dong);
+
+                if (!_pwdEdit) {
+                    const live = slots.filter(s => String(s.pwd || '').trim());
+                    body.innerHTML =
+                        (live.length === 0
+                            ? `<div style="padding:34px 0; text-align:center; color:#94a3b8; font-size:13px; font-weight:700;">적어 둔 비번이 없습니다.</div>`
+                            : `<div style="border:1.5px solid #fde68a; border-radius:12px; overflow:hidden; background:#fffdf7;">`
+                              + live.map((s, i) => `
+                                <div style="display:flex; align-items:stretch; ${i ? 'border-top:1px solid #fde68a;' : ''}">
+                                    <span style="flex:0 0 92px; display:flex; align-items:center; justify-content:center; padding:13px 8px; border-right:1px solid #fde68a; font-size:14px; font-weight:800; color:#a16207; white-space:nowrap;">${gEsc(gSlotLabel(s))}</span>
+                                    <span style="flex:1; min-width:0; display:flex; align-items:center; padding:13px 14px; font-size:19px; font-weight:900; color:#78350f; letter-spacing:1px; word-break:break-all;">${gEsc(s.pwd)}</span>
+                                </div>`).join('')
+                              + `</div>`)
+                        + `<button type="button" onclick="togglePwdEdit(true)" style="width:100%; margin-top:14px; padding:12px; border:1.5px solid #cbd5e1; background:#fff; color:#475569; border-radius:10px; font-size:13px; font-weight:800; cursor:pointer;">✏️ 수정</button>`;
+                    return;
+                }
+
+                // 고치기
+                const editing = slots.slice();
+                if (_pwdNewSlot) editing.push({ key: '', from: _pwdNewSlot.from, to: _pwdNewSlot.to, pwd: '', isNew: true });
+
+                const cell = 'height:38px; padding:4px 8px; border:1.5px solid #e2e8f0; border-radius:8px; font-size:15px; font-weight:800; text-align:center; box-sizing:border-box;';
+                const rowHtml = (s, i) => {
+                    const isAll = (s.from == null);
+                    const armed = (_pwdDelArmed === s.key && s.key);
+                    return `<div data-slot="${i}" data-key="${gEsc(s.key)}" data-all="${isAll ? '1' : '0'}" style="padding:12px 0; ${i ? 'border-top:1px solid #f1f5f9;' : ''}">`
+                        + `<div style="display:flex; align-items:center; gap:6px;">`
+                        + (isAll
+                            ? `<span style="flex:1; font-size:13px; font-weight:800; color:#94a3b8;">전체 (호수 구분 없음)</span>`
+                            : `<input data-f type="number" inputmode="numeric" value="${s.from}" style="width:56px; ${cell}">`
+                              + `<span style="font-size:13px; font-weight:800; color:#cbd5e1;">~</span>`
+                              + `<input data-t type="number" inputmode="numeric" value="${s.to}" style="width:56px; ${cell}">`
+                              + `<span style="font-size:13px; font-weight:800; color:#64748b; margin-right:auto;">호</span>`)
+                        + `<button type="button" onclick="commitPwdSlot(${i})" style="height:38px; padding:0 14px; border:none; background:#10b981; color:#fff; border-radius:8px; font-size:12.5px; font-weight:800; cursor:pointer;">저장</button>`
+                        + (s.key
+                            ? `<button type="button" onclick="askDeletePwdSlot('${gEsc(s.key).replace(/'/g, "\\'")}')" style="height:38px; padding:0 11px; border:1.5px solid ${armed ? '#dc2626' : '#e2e8f0'}; background:${armed ? '#dc2626' : '#fff'}; color:${armed ? '#fff' : '#94a3b8'}; border-radius:8px; font-size:12px; font-weight:800; cursor:pointer; white-space:nowrap;">${armed ? '한 번 더' : '삭제'}</button>`
+                            : `<button type="button" onclick="cancelNewPwdSlot()" style="height:38px; padding:0 11px; border:1.5px solid #e2e8f0; background:#fff; color:#94a3b8; border-radius:8px; font-size:12px; font-weight:800; cursor:pointer;">취소</button>`)
+                        + `</div>`
+                        + `<input data-p type="text" value="${gEsc(s.pwd)}" placeholder="비번"`
+                        + ` style="width:100%; box-sizing:border-box; margin-top:7px; height:46px; padding:8px 12px; border:1.5px solid #e2e8f0; border-radius:9px; font-size:18px; font-weight:900; letter-spacing:1px; text-align:center; background:#fff;">`
+                        + `</div>`;
+                };
+
+                body.innerHTML =
+                    (editing.length === 0
+                        ? `<div style="padding:24px 0; text-align:center; color:#94a3b8; font-size:13px; font-weight:700;">칸이 없습니다.</div>`
+                        : editing.map(rowHtml).join(''))
+                    + `<button type="button" onclick="addPwdSlot()" style="width:100%; margin-top:12px; padding:12px; border:1.5px dashed #cbd5e1; background:#fff; color:#64748b; border-radius:10px; font-size:13px; font-weight:800; cursor:pointer;">＋ 호수 칸 추가</button>`
+                    + `<button type="button" onclick="togglePwdEdit(false)" style="width:100%; margin-top:7px; padding:12px; border:none; background:#475569; color:#fff; border-radius:10px; font-size:13px; font-weight:800; cursor:pointer;">✔ 마치기</button>`
+                    + `<div style="margin-top:10px; font-size:11px; font-weight:700; color:#cbd5e1; line-height:1.6;">호수를 고치면 그 칸이 통째로 옮겨집니다. 고친 뒤 <b>저장</b>을 눌러 주세요.</div>`;
                 return;
             }
 
-            // 2단계 — 동 고르기
+            // ── 2단계: 동 고르기
             if (_pwdView.apt) {
                 if (title) title.innerText = _pwdView.apt;
                 const dongs = Object.keys(tree[_pwdView.apt] || {})
                     .filter(d => !q || d.toLowerCase().includes(q))
                     .sort((a, b) => (parseInt(a.replace(/\D/g, '')) || 9999) - (parseInt(b.replace(/\D/g, '')) || 9999) || a.localeCompare(b));
                 body.innerHTML = dongs.length === 0
-                    ? `<div style="padding:30px 0; text-align:center; color:#94a3b8; font-weight:700;">동이 없습니다.</div>`
-                    : `<div style="display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:6px;">`
-                      + dongs.map(d => {
-                          const ok = has(_pwdView.apt, d);
-                          return `<button type="button" onclick="pwdPickDong('${gEsc(d).replace(/'/g, "\\'")}')"`
-                            + ` style="padding:12px 6px; border:1.5px solid ${ok ? '#bbf7d0' : '#e2e8f0'}; background:${ok ? '#f0fdf4' : '#fff'}; color:#0f172a; border-radius:10px; font-size:13px; font-weight:800; cursor:pointer;">`
-                            + `${gEsc(d)}${ok ? `<div style="font-size:10px; font-weight:800; color:#15803d; margin-top:2px;">🚪 있음</div>` : `<div style="font-size:10px; font-weight:700; color:#cbd5e1; margin-top:2px;">—</div>`}</button>`;
-                      }).join('') + `</div>`;
+                    ? `<div style="padding:34px 0; text-align:center; color:#94a3b8; font-weight:700;">동이 없습니다.</div>`
+                    : dongs.map(d => {
+                        const ok = has(_pwdView.apt, d);
+                        return listRow(`pwdPickDong('${gEsc(d).replace(/'/g, "\\'")}')`, gEsc(d), ok ? '🚪' : '', !ok);
+                    }).join('');
                 return;
             }
 
-            // 1단계 — 아파트 고르기
+            // ── 1단계: 아파트 고르기
             if (title) title.innerText = '🚪 공동현관 비번';
             const apts = Object.keys(tree)
                 .filter(a => !q || a.toLowerCase().includes(q))
                 .sort((a, b) => {
                     if (a === '기타') return 1;
                     if (b === '기타') return -1;
-                    return a.localeCompare(b, "ko");   // [수정] 이름순 (동 개수 순이면 찾을 때마다 자리가 바뀌어 눈에 안 익는다)
+                    return a.localeCompare(b, 'ko');
                 });
             body.innerHTML = apts.length === 0
-                ? `<div style="padding:30px 0; text-align:center; color:#94a3b8; font-weight:700;">찾는 아파트가 없습니다.</div>`
-                : `<div style="display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:6px;">`
-                  + apts.map(a => {
-                      const dongs = Object.keys(tree[a]);
-                      const okCount = dongs.filter(d => has(a, d)).length;
-                      return `<button type="button" onclick="pwdPickApt('${gEsc(a).replace(/'/g, "\\'")}')"`
-                        + ` style="padding:12px 10px; border:1.5px solid #e2e8f0; background:#fff; border-radius:10px; text-align:left; cursor:pointer;">`
-                        + `<div style="font-size:14px; font-weight:900; color:#0f172a;">${gEsc(a)}</div>`
-                        + `<div style="font-size:11px; font-weight:700; color:${okCount ? '#15803d' : '#cbd5e1'}; margin-top:3px;">동 ${dongs.length}개 · 비번 ${okCount}개</div></button>`;
-                  }).join('') + `</div>`;
+                ? `<div style="padding:34px 0; text-align:center; color:#94a3b8; font-weight:700;">찾는 아파트가 없습니다.</div>`
+                : apts.map(a => {
+                    const dongs = Object.keys(tree[a]);
+                    const okCount = dongs.filter(d => has(a, d)).length;
+                    return listRow(`pwdPickApt('${gEsc(a).replace(/'/g, "\\'")}')`, gEsc(a),
+                        okCount ? `${okCount}개` : '', !okCount);
+                }).join('');
         }
 
         function gEsc(s) {
@@ -2077,39 +2246,51 @@
             groupedCustomers.sort((a, b) => {
                 return dongOrders.indexOf(a.orders[0]) - dongOrders.indexOf(b.orders[0]);
             });
-
-            // 공동현관 비번 정보 로드 (동이 "전체"가 아닐 때만 노출) — [변경] 1·2 라인 / 3·4 라인 두 박스로 분리
+            // 공동현관 비번 (동이 "전체"가 아닐 때만 노출)
             // [수정] '기타'는 빌라·다세대 모음이라 동마다 라인별 공동현관 비번이 없다.
-            //  집집마다 비번이 달라 이 칸이 오히려 헷갈려서 빼둔다. (비번은 주문의 공동현관 입력값으로 본다)
+            //  집집마다 비번이 달라 이 칸이 오히려 헷갈려서 빼둔다.
+            // [수정] 1·2 / 3·4 두 칸으로 못 박아 두었는데, 아파트마다 라인 수가 달라 맞지 않았다.
+            //  이제 '🚪 비번' 창에서 정한 호수 칸을 그대로 읽어 보여 준다. 고치는 것도 거기서 한다.
             if (activeDong !== "전체" && activeApartment !== "전체" && activeApartment !== "기타") {
-                const pwdMap = entrancePasswords[activeApartment] || {};
-                const legacy = pwdMap[activeDong] || "";            // 기존 단일 비번(하위호환)
-                // [신규] 기존 필드를 호수 끝자리로 라인 자동 분류: 1·2호=1·2라인, 3·4호=3·4라인, 호수 없는 공통코드는 양쪽에
-                const _lineOfHo = (tok) => { const m = String(tok).match(/^(\d{2,})/); if (!m) return 'both'; const d = m[1].slice(-1); return (d === '3' || d === '4') ? '34' : (d === '1' || d === '2') ? '12' : 'both'; };
-                const _auto12 = [], _auto34 = [];
-                String(legacy).trim().split(/\s+/).filter(Boolean).forEach(t => { const l = _lineOfHo(t); if (l === '34') _auto34.push(t); else if (l === '12') _auto12.push(t); else { _auto12.push(t); _auto34.push(t); } });
-                const pwd12 = pwdMap[`${activeDong}_1-2라인`] || _auto12.join('  ') || ""; // 저장된 라인 키 우선, 없으면 자동 분류값
-                const pwd34 = pwdMap[`${activeDong}_3-4라인`] || _auto34.join('  ') || "";
+                /* [수정] 그 동의 비번을 전부 늘어놓으니, 오늘 안 가는 호수 것까지 섞여 눈이 갔다.
+                   오늘 배달 갈 호수가 든 칸만 보여 준다. (4호가 있으면 3~4호 칸)
+                   호수를 못 읽는 주문이 섞여 있으면 놓치지 않게 전부 보여 준다. */
+                const _allSlots = gSlotsOf(activeApartment, activeDong).filter(s => String(s.pwd || '').trim());
+                const _hoLasts = new Set();
+                let _unknownHo = false;
+                groupedCustomers.forEach(g => {
+                    const d = String((g.orders && g.orders[0] && g.orders[0].addressDetail) || g.addressDetail || '');
+                    const m = d.match(/(\d+)\s*호/) || d.match(/-\s*(\d+)\s*$/);
+                    if (m) _hoLasts.add(parseInt(String(m[1]).slice(-1)));
+                    else _unknownHo = true;
+                });
+                const _fit = _allSlots.filter(s => s.from == null
+                    || [..._hoLasts].some(h => h >= s.from && h <= s.to));
+                const slots = (_unknownHo || _fit.length === 0) ? _allSlots : _fit;
 
                 const pwdCard = document.createElement('div');
-                pwdCard.className = 'password-card';
+                /* [수정] 주문 카드와 짜임은 같게 두되, 색은 달리한다.
+                   똑같이 회색·흰색이면 목록을 훑을 때 비번 카드인지 주문 카드인지 헷갈렸다.
+                   테두리·머리줄을 살구빛으로 바꿔 한눈에 구분되게 하고, 짜임은 그대로 둔다. */
+                pwdCard.className = 'rider-card';
+                pwdCard.style.marginBottom = '14px';
+                pwdCard.style.borderColor = '#fbbf24';
+                pwdCard.style.background = '#fffdf7';
                 pwdCard.innerHTML = `
-                    <div class="password-header">🚪 ${activeApartment} ${activeDong} 공동현관 비번</div>
-                    <div style="display:flex; flex-direction:column; gap:8px; margin-top:6px;">
-                        <div>
-                            <div style="font-size:11px; font-weight:800; color:#334155; margin-bottom:4px;">1·2 라인</div>
-                            <div class="password-body">
-                                <input type="text" id="entrance-password-input-12" class="password-input" placeholder="1·2호 라인 비밀번호..." value="${pwd12}">
-                                <button class="btn-pwd-save" onclick="saveEntrancePassword('12')">저장</button>
-                            </div>
-                        </div>
-                        <div>
-                            <div style="font-size:11px; font-weight:800; color:#334155; margin-bottom:4px;">3·4 라인</div>
-                            <div class="password-body">
-                                <input type="text" id="entrance-password-input-34" class="password-input" placeholder="3·4호 라인 비밀번호..." value="${pwd34}">
-                                <button class="btn-pwd-save" onclick="saveEntrancePassword('34')">저장</button>
-                            </div>
-                        </div>
+                    <div class="rider-card-header" style="background:#fef3c7; border-bottom-color:#fbbf24;">
+                        <span style="font-size:14px; font-weight:850; color:#92400e;">🚪 ${activeApartment} ${activeDong} 공동현관 비번</span>
+                        <button type="button" onclick="openPasswordFinder(); pwdPickApt('${gEsc(activeApartment).replace(/'/g, "\'")}'); pwdPickDong('${gEsc(activeDong).replace(/'/g, "\'")}'); togglePwdEdit(true);"
+                            title="비번 고치기"
+                            style="flex:0 0 auto; padding:4px 10px; border:1.5px solid #fbbf24; background:#fff; color:#b45309; border-radius:7px; font-size:11.5px; font-weight:800; cursor:pointer;">✏️ 수정</button>
+                    </div>
+                    <div class="rider-card-body" style="gap:0; padding:10px 16px 12px;">
+                        ${slots.length === 0
+                            ? `<div style="font-size:12.5px; font-weight:700; color:#b7a894;">적어 둔 비번이 없습니다.</div>`
+                            : slots.map((s, i) => `
+                                <div style="display:flex; align-items:stretch; gap:0; padding:7px 0; ${i ? "border-top:1px solid #fde68a;" : ""}">
+                                    <span style="flex:0 0 86px; display:flex; align-items:center; justify-content:center; font-size:16px; font-weight:800; line-height:1.5; color:#a16207; white-space:nowrap; border-right:1px solid #fde68a; padding-right:14px;">${gEsc(gSlotLabel(s))}</span>
+                                    <span style="flex:1; min-width:0; display:flex; align-items:center; padding-left:16px; font-size:16px; font-weight:900; line-height:1.5; color:#78350f; word-break:break-all; letter-spacing:0.5px;">${gEsc(s.pwd)}</span>
+                                </div>`).join('')}
                     </div>
                 `;
                 listContainer.appendChild(pwdCard);
