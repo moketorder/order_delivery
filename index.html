@@ -738,6 +738,12 @@
            사장님 화면(주문관리 → 전단지 돌린 곳)에서 적어 두면 여기에도 그대로 보인다.
            저장 자리: entrance_common/{도로명주소} */
         let entranceCommon = {};
+        /* [신규] 가게가 적어 둔 메모. 기사님 화면에도 보여 준다.
+             · 인쇄메모(print_fixed_memos) — 손님마다 붙어 다니는 말. 원래 인쇄물에 나가던 것이다.
+             · 주문메모(customer_memos)   — 그 주문 한 건에만 붙는 말.
+           가게 안에서만 쓰는 고정메모(fixed_memos)는 뺀다. 인쇄물에서도 빼고 있다. */
+        let riderPrintMemos = {};   // 전화번호 -> 인쇄메모
+        let riderOrderMemos = {};   // 전화번호_주문시각 -> 주문메모
         const gCommonPwdOf = (aptName) => String((entranceCommon || {})[aptName] || '').trim();
         function gRemapCommon(raw) {
             const out = {};
@@ -950,6 +956,37 @@
                 out[name] = Object.assign(out[name] || {}, raw[k] || {});
             });
             return out;
+        }
+
+        /* [신규] 상세주소에서 '그 층에서의 호수'를 뽑는다.
+           손님이 적는 꼴이 제각각이라 '1102호'만 찾아서는 절반을 놓쳤다 —
+           '102-704', '104동2504', '106/2904', '106.1603' 같은 것도 다 호수를 적은 것이다.
+           뒤 두 자리를 그 층에서의 호수로 본다 (1102 → 02, 1110 → 10). 못 읽으면 null. */
+        // 손님이 적은 그대로의 호수 (1302, 704 …). 못 읽으면 null.
+        function gHoRawOf(addrDetail) {
+            const s = String(addrDetail || '').trim();
+            if (!s) return null;
+            const m = s.match(/(\d+)\s*호/)              // 1102호
+                || s.match(/동\s*(\d+)\s*$/)             // 104동2504
+                || s.match(/[-\/.\s]\s*(\d{3,})\s*$/)    // 102-704 · 106/2904 · 106.1603
+                || s.match(/^\s*(\d{3,})\s*$/);          // 704
+            return m ? String(m[1]) : null;
+        }
+
+        // 그 층에서의 호수 (라인을 가릴 때 쓴다). 1102 → 2, 1110 → 10.
+        function gHoOf(addrDetail) {
+            const raw = gHoRawOf(addrDetail);
+            if (raw == null) return null;
+            const n = parseInt(raw.slice(-2), 10);
+            return isNaN(n) ? null : n;
+        }
+
+        // 적힌 호수에서 그 층 호수를 뽑는다 (1302호 → 2)
+        function gHoLine(hoText) {
+            const d = String(hoText || '').replace(/\D/g, '');
+            if (!d) return null;
+            const n = parseInt(d.slice(-2), 10);
+            return isNaN(n) ? null : n;
         }
 
         // 아파트 이름 추출 헬퍼 — 도로명주소 → 지번 → 이름조각 순으로 본다.
@@ -1214,6 +1251,9 @@
             const cached = localStorage.getItem('moket_orders_cache');
             const cachedPasswords = localStorage.getItem('moket_entrance_passwords_cache');
             try { entranceCommon = JSON.parse(localStorage.getItem('moket_entrance_common_cache') || '{}') || {}; } catch (e) { entranceCommon = {}; }
+            // [신규] 가게 메모도 담아 둔 것을 먼저 꺼내 쓴다 (서버에서 받아 오면 덮어쓴다)
+            try { const m = JSON.parse(localStorage.getItem('moket_rider_memos_cache') || '{}') || {};
+                  riderPrintMemos = m.p || {}; riderOrderMemos = m.o || {}; } catch (e) {}
 
             if (cached) {
                 try {
@@ -1316,10 +1356,12 @@
             if (syncDotEl) syncDotEl.style.backgroundColor = "#eab308";
 
             try {
-                const [response, pwdRes, comRes] = await Promise.all([
+                const [response, pwdRes, comRes, pfRes, omRes] = await Promise.all([
                     fetch(`${FIREBASE_DB_URL}orders.json`),
                     fetch(`${FIREBASE_DB_URL}entrance_passwords.json`).catch(e => null),
-                    fetch(`${FIREBASE_DB_URL}entrance_common.json`).catch(e => null)
+                    fetch(`${FIREBASE_DB_URL}entrance_common.json`).catch(e => null),
+                    fetch(`${FIREBASE_DB_URL}print_fixed_memos.json`).catch(e => null),
+                    fetch(`${FIREBASE_DB_URL}customer_memos.json`).catch(e => null)
                 ]);
 
                 if (!response.ok) throw new Error("Firebase 연결 실패");
@@ -1347,6 +1389,13 @@
                     entranceCommon = gRemapCommon(await comRes.json() || {});
                     try { localStorage.setItem('moket_entrance_common_cache', JSON.stringify(entranceCommon)); } catch (e) {}
                 }
+
+                // [신규] 가게 메모 — 못 받아도 배달 목록은 그대로 나와야 한다
+                try { riderPrintMemos = (pfRes && pfRes.ok) ? (await pfRes.json() || {}) : {}; } catch (e) { riderPrintMemos = {}; }
+                try { riderOrderMemos = (omRes && omRes.ok) ? (await omRes.json() || {}) : {}; } catch (e) { riderOrderMemos = {}; }
+                try {
+                    localStorage.setItem('moket_rider_memos_cache', JSON.stringify({ p: riderPrintMemos, o: riderOrderMemos }));
+                } catch (e) {}
 
                 rawOrders = [];
                 for (const phone in data) {
@@ -2355,9 +2404,8 @@
                 let _unknownHo = false;
                 groupedCustomers.forEach(g => {
                     const d = String((g.orders && g.orders[0] && g.orders[0].addressDetail) || g.addressDetail || '');
-                    const m = d.match(/(\d+)\s*호/) || d.match(/-\s*(\d+)\s*$/);
-                    // [수정] 뒤 두 자리를 그 층에서의 호수로 본다 (1102호 → 02호, 1110호 → 10호)
-                    if (m) _hoLasts.add(parseInt(String(m[1]).slice(-2), 10));
+                    const hoN = gHoOf(d);
+                    if (hoN != null) _hoLasts.add(hoN);
                     else _unknownHo = true;
                 });
                 const _fit = _allSlots.filter(s => s.from == null
@@ -2490,6 +2538,43 @@
                                 🚪 공동현관 입력값: <b>${customer.entrance}</b>
                             </div>
                         ` : ''}
+                        ${(() => {
+                            /* [신규] 가게 메모와 손님 요청사항을 한자리에 모아 보여 준다.
+                               문 앞에서 한 번에 눈에 들어와야 하므로 상자 하나에 줄로 쌓는다.
+                                 · 🖨 인쇄메모 — 손님에게 붙어 다니는 말 (원래 인쇄물에 나가던 것)
+                                 · 📝 주문메모 — 그 주문 한 건에만 붙는 말
+                                 · 🙋 요청사항 — 손님이 주문할 때 적은 말
+                               가게 안에서만 쓰는 고정메모는 뺀다. */
+                            const esc = t => String(t).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+                            const cleanPhone = String(customer.phone || '').replace(/\D/g, '');
+                            const baseKey = cleanPhone || (String(customer.name || '무명').trim() + '_비인증');
+
+                            const rows = [];
+                            const printMemo = String(riderPrintMemos[baseKey] || '').trim();
+                            if (printMemo) rows.push(['🖨', '인쇄메모', printMemo, '#7c3aed']);
+
+                            const seen = new Set();
+                            (customer.orders || []).forEach(o => {
+                                const m = String(riderOrderMemos[baseKey + '_' + String((o && o.timestamp) || '').replace(/\s+/g, '')] || '').trim();
+                                if (m && !seen.has(m)) { seen.add(m); rows.push(['📝', '주문메모', m, '#b45309']); }
+                            });
+
+                            const hit = (customer.orders || []).find(x => String((x && x.note) || '').trim());
+                            if (hit) rows.push(['🙋', '요청사항', String(hit.note).trim(), '#1d4ed8']);
+
+                            if (!rows.length) return '';
+                            const line = ([ico, lab, txt, color]) => `
+                                <div style="display:flex; gap:6px; align-items:baseline; line-height:1.5;">
+                                    <span style="flex:0 0 74px; display:flex; gap:3px; align-items:baseline; color:${color}; font-weight:900;">
+                                        <span style="flex:0 0 15px; text-align:center;">${ico}</span>
+                                        <span style="flex:1; text-align:center;">${lab}</span>
+                                    </span>
+                                    <span style="flex:1; min-width:0; color:${color}; font-weight:800; word-break:break-all;">${esc(txt)}</span>
+                                </div>`;
+                            return `<div class="address-box" style="background:#fffbeb; border:1.5px solid #fcd34d; display:flex; flex-direction:column; gap:3px;">
+                                ${rows.map(line).join('')}
+                            </div>`;
+                        })()}
                         
                         <div class="item-list">
                             ${itemHtml}
