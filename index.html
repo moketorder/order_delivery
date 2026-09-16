@@ -1496,6 +1496,9 @@
                 }
 
                 buildDateTabs();
+
+                // [신규] 비번이 빈 동·호수는 손님이 적어 둔 공동현관 입력값으로 채운다
+                gAutoFillEntrancePwd().catch(e => console.warn('비번 자동 채우기 실패:', e));
             } catch (e) {
                 console.error(e);
                 showToast("데이터를 로드하지 못했습니다.");
@@ -1859,6 +1862,60 @@
             return formatDongName(getDongNumber(item.addressDetail, item.address));
         }
 
+
+        /* [신규] 공동현관 비번 빈칸 자동 채우기
+           손님이 주문서에 적어 둔 '공동현관 입력값'을, 그 동·호수에 적어 둔 비번이 없을 때만 넣는다.
+             · 그 호수를 덮는 칸에 비번이 있으면 손대지 않는다 (1-2라인이 있으면 2호는 이미 덮인 것이다)
+             · 단지 공용 비번은 따로 관리하는 값이라, 있어도 그 호수 칸은 따로 채운다
+             · 칸은 쓰던 방식 그대로 만든다 — 예: 1304호면 '13동_4-4라인'
+             · 빌라·다세대(기타·묶어 둔 구역)는 집집마다 달라 넣지 않는다 */
+        async function gAutoFillEntrancePwd() {
+            const seen = new Set();
+            const jobs = [];
+            (rawOrders || []).forEach(it => {
+                if (!it) return;
+                const pwd = String(it.entrance || '').trim();
+                if (!pwd) return;
+                // [수정] '경비실'처럼 글자만 적어 둔 것은 비번이 아니라 넣지 않는다 (숫자가 둘 이상 있어야 한다)
+                if ((pwd.match(/\d/g) || []).length < 2) return;
+                if (findCustomZoneName(it.address)) return;
+                const apt = extractApartmentName(it.address || '');
+                if (!apt || apt === '기타') return;
+                // [수정] 단지 공용 비번은 따로 관리하므로, 있어도 그 호수에 맞는 칸은 따로 채운다
+                const dong = getDongGroupName(it);
+                if (!dong || dong === '기타') return;
+                const ho = gHoOf(it.addressDetail || '');
+                if (ho == null) return;
+                const covered = gSlotsOf(apt, dong).some(s => String(s.pwd || '').trim()
+                    && (s.from == null || (ho >= s.from && ho <= s.to)));
+                if (covered) return;
+                const key = gSlotKey(dong, ho, ho);
+                const id = `${apt}|${key}`;
+                if (seen.has(id)) return;
+                seen.add(id);
+                jobs.push({ apt, key, pwd });
+            });
+            if (!jobs.length) return 0;
+
+            let n = 0;
+            for (const j of jobs) {
+                try {
+                    const url = `${FIREBASE_DB_URL}entrance_passwords/${encodeURIComponent(gAptRoadKey(j.apt))}/${encodeURIComponent(j.key)}.json`;
+                    const res = await fetch(url, {
+                        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(j.pwd)
+                    });
+                    if (!res.ok) continue;
+                    if (!entrancePasswords[j.apt]) entrancePasswords[j.apt] = {};
+                    entrancePasswords[j.apt][j.key] = j.pwd;
+                    n++;
+                } catch (e) { /* 하나 실패해도 나머지는 넣는다 */ }
+            }
+            if (!n) return 0;
+            try { localStorage.setItem('moket_entrance_passwords_cache', JSON.stringify(entrancePasswords)); } catch (e) { }
+            renderFilteredData();
+            showToast(`공동현관 비번 ${n}곳을 손님이 적은 값으로 채웠습니다.`);
+            return n;
+        }
 
         /* ===== [신규] 설정 =====
            공동현관 비번과 아파트 순서를 여기서 고친다.
