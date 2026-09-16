@@ -397,7 +397,10 @@
         .address-text .addr-full {
             flex: 1 1 auto;
             min-width: 0;
-            word-break: break-all;
+            /* [수정] 띄어쓰기가 없는 자리에서 낱말이 잘려 줄이 바뀌던 것을 막는다.
+               줄은 띄어쓰기에서만 바뀌고, 한 낱말이 줄보다 길 때만 어쩔 수 없이 자른다. */
+            word-break: keep-all;
+            overflow-wrap: break-word;
         }
 
         /* [신규] 빌라 등 풀주소 옆 복사 버튼 — 손가락으로 누르기 쉽게 넉넉히 잡는다 */
@@ -688,9 +691,9 @@
                     <input type="text" id="searchInput" class="search-input" placeholder="고객명, 연락처, 호수, 상품명 검색..." onkeyup="handleSearchInput()">
                     <button id="clearSearchBtn" class="clear-search-btn" onclick="clearSearch()">&times;</button>
                 </div>
-                <!-- [신규] 공동현관 비번 조회 — 아파트 → 동 → 비번 -->
-                <button type="button" onclick="openPasswordFinder()" title="공동현관 비번 조회"
-                    style="flex:0 0 auto; width:42px; height:42px; border:1.5px solid #cbd5e1; background:#fff; border-radius:10px; font-size:17px; cursor:pointer; display:flex; align-items:center; justify-content:center;">🚪</button>
+                <!-- [수정] '🚪 비번' 단추를 '⚙️ 설정'으로 바꿨다. 비번과 아파트 차례를 여기서 고친다. -->
+                <button type="button" onclick="openSettings()" title="설정"
+                    style="flex:0 0 auto; width:42px; height:42px; padding:0; border:1.5px solid #cbd5e1; background:#fff; border-radius:10px; font-size:17px; line-height:1; cursor:pointer; display:flex; align-items:center; justify-content:center;"><span style="display:block; line-height:1;">⚙️</span></button>
             </div>
         </div>
 
@@ -1109,20 +1112,14 @@
             return best;
         }
 
-        /* [신규] 아파트로 안 잡히는 주소(빌라·다세대 등)인지.
-           아파트는 '더샵 101동 1502호'처럼 이름과 동·호수만 알면 찾아가지만,
-           빌라는 도로명 전체를 내비에 찍어야 해서 복사 버튼이 필요하다. */
-        //  [수정] 묶어 둔 구역으로 잡힌 주소도 빌라·다세대이므로 복사 버튼이 필요하다.
-        //   (구역 이름이 붙는 순간 '기타'가 아니게 되어 버튼이 사라지던 문제)
-        function needsAddrCopy(address) {
-            if (!address) return false;
-            if (findCustomZoneName(address)) return true;      // 사장님이 묶어 둔 빌라
-            return extractApartmentName(address) === "기타";    // 아무 데도 안 잡힌 주소
-        }
+        /* [수정] 예전에는 빌라·다세대(아파트로 안 잡힌 주소)에만 복사 버튼을 달았다.
+           아파트도 내비에 이름 대신 주소를 찍는 일이 있어, 이제 주소가 있으면 모두 단다. */
 
         // [신규] 주소를 클립보드에 담는다. 눌렀다는 것이 보이도록 버튼 글자를 잠깐 바꾼다.
         async function copyAddress(btn, encoded) {
-            const text = decodeURIComponent(encoded).trim();
+            /* [수정] 도로명주소 뒤 괄호((선동, 미사강변 센트리버))는 빼고 복사한다.
+               내비에 그대로 넣으면 못 찾는 일이 있어서다. 화면에 보이는 주소는 그대로 둔다. */
+            const text = decodeURIComponent(encoded).replace(/\s*\([^()]*\)/g, ' ').replace(/\s+/g, ' ').trim();
             if (!text) return;
             let ok = false;
             try {
@@ -1752,9 +1749,13 @@
             const gHouseCount = (list) => new Set(
                 (list || []).map(it => normalizePhoneNumber(it.phone)).filter(Boolean)
             ).size;
+            //  [수정] 설정에서 차례를 정해 두면 그 차례가 먼저다. 안 적힌 아파트만 집 수로 줄 세운다.
+            window.__aptGroupsNow = aptGroups;   // 설정 창이 '오늘 배달 있는 아파트'를 여기서 본다
             const apartments = Object.keys(aptGroups).sort((a, b) => {
                 if (a === "기타") return 1;
                 if (b === "기타") return -1;
+                const oa = gAptOrderIdx(a), ob = gAptOrderIdx(b);
+                if (oa !== ob) return oa - ob;
                 const diff = gHouseCount(aptGroups[b]) - gHouseCount(aptGroups[a]);
                 if (diff !== 0) return diff;
                 return a.localeCompare(b);
@@ -1777,7 +1778,22 @@
                 lastAptByDay[gDayKey()] = "전체";
             }
 
-            // [변경] '전체' 버튼 제거 — 아파트 토글로 대체(아무 아파트도 선택 안 하면 전체 표시)
+            /* [수정] 맨 앞에 '전체' 버튼을 다시 뒀다. 아파트를 한 번 더 눌러 푸는 것만으로는
+               지금 전체를 보고 있는지 알기 어려웠다. 누르면 그날 배달을 모두 보여 준다. */
+            const allAptBtn = document.createElement('button');
+            allAptBtn.className = `btn-select apt-btn ${activeApartment === "전체" ? 'active' : ''}`;
+            allAptBtn.innerHTML = `<span style="display:block; line-height:1.15;">전체</span><span style="display:block; font-size:11px; font-weight:800; line-height:1.15; opacity:0.85;">${getDeliveryProgressText(filtered)}</span>`;
+            allAptBtn.onclick = () => {
+                activeApartment = "전체";
+                activeDong = "전체";
+                lastAptByDay[gDayKey()] = "전체";
+                document.querySelectorAll('.apt-btn').forEach(b => b.classList.remove('active'));
+                allAptBtn.classList.add('active');
+                document.getElementById('dong-section').style.display = 'none';
+                renderOrderCards(filtered);
+            };
+            aptContainer.appendChild(allAptBtn);
+
             apartments.forEach(apt => {
                 const btn = document.createElement('button');
                 btn.className = `btn-select apt-btn ${apt === activeApartment ? 'active' : ''}`;
@@ -1790,6 +1806,7 @@
                         activeApartment = "전체";
                         lastAptByDay[gDayKey()] = "전체";
                         document.querySelectorAll('.apt-btn').forEach(b => b.classList.remove('active'));
+                        allAptBtn.classList.add('active');   // [수정] 전체 버튼에 불이 들어오게
                         document.getElementById('dong-section').style.display = 'none';
                         renderOrderCards(filtered);
                     } else {
@@ -1827,6 +1844,132 @@
         }
 
 
+        /* ===== [신규] 설정 =====
+           공동현관 비번과 아파트 차례를 여기서 고친다.
+             · 아파트 차례 — 아파트 단추가 나오는 순서. 정해 둔 것이 없으면 예전처럼 그날 집 수가 많은 곳부터.
+             · 정한 차례는 서버(apartment_order)에 담아 기사 모두가 같은 순서로 본다. */
+        const APT_ORDER_KEY = 'moket_apt_order';
+        let APT_ORDER = [];
+        try { const _c = localStorage.getItem(APT_ORDER_KEY); if (_c) APT_ORDER = JSON.parse(_c) || []; } catch (e) { }
+
+        async function loadApartmentOrder() {
+            try {
+                const res = await fetch(`${FIREBASE_DB_URL}apartment_order.json?t=${Date.now()}`);
+                if (!res.ok) throw new Error(`서버 응답 ${res.status}`);
+                const data = await res.json();
+                const list = Array.isArray(data) ? data : (data ? Object.values(data) : []);
+                APT_ORDER = list.map(x => String(x || '').trim()).filter(Boolean);
+                try { localStorage.setItem(APT_ORDER_KEY, JSON.stringify(APT_ORDER)); } catch (e) { }
+            } catch (e) {
+                console.warn('아파트 차례 불러오기 실패:', e);   // 못 받으면 기기에 담아 둔 차례를 쓴다
+            }
+            return APT_ORDER;
+        }
+
+        // 정해 둔 차례에서 몇 번째인지. 안 적힌 아파트는 뒤로 보낸다.
+        function gAptOrderIdx(name) {
+            const i = APT_ORDER.indexOf(name);
+            return i < 0 ? Infinity : i;
+        }
+
+        function openSettings() { document.getElementById('settings-modal').style.display = 'flex'; }
+        function closeSettings() { document.getElementById('settings-modal').style.display = 'none'; }
+        function settingsOpenPwd() { closeSettings(); openPasswordFinder(true); }
+
+        // ── 아파트 차례 고치기
+        let aptOrderEdit = [];
+        function openAptOrder() {
+            const list = [];
+            const add = n => { n = String(n || '').trim(); if (n && n !== '기타' && !list.includes(n)) list.push(n); };
+            APT_ORDER.forEach(add);
+            Object.keys(window.__aptGroupsNow || {}).forEach(add);   // 오늘 배달이 있는 아파트
+            /* [수정] 오늘 것만 보여 주니 오늘 안 가는 아파트는 차례를 정해 둘 수 없었다.
+               받아 둔 주문 전체에서 배달 간 적 있는 아파트를 모두 넣는다. 비번을 적어 둔 곳도 함께. */
+            (rawOrders || []).forEach(o => add(extractApartmentName(o && o.address)));
+            Object.keys(entrancePasswords || {}).forEach(add);
+            aptOrderEdit = list;
+            closeSettings();
+            document.getElementById('apt-order-modal').style.display = 'flex';
+            renderAptOrder();
+        }
+        function closeAptOrder() { document.getElementById('apt-order-modal').style.display = 'none'; }
+
+        function renderAptOrder() {
+            const box = document.getElementById('apt-order-body');
+            if (!box) return;
+            if (!aptOrderEdit.length) {
+                box.innerHTML = `<div style="padding:26px 0; text-align:center; color:#94a3b8; font-size:13px; font-weight:700;">차례를 정할 아파트가 없습니다.</div>`;
+                return;
+            }
+            box.innerHTML = aptOrderEdit.map((name, i) => {
+                const held = aptDrag && aptDrag.i === i;
+                return `
+                <div data-apt-row="${i}" style="display:flex; align-items:center; gap:10px; padding:11px 10px; margin-top:${i ? 6 : 0}px; border:1.5px solid ${held ? '#93c5fd' : '#e2e8f0'}; border-radius:11px; background:${held ? '#eff6ff' : '#fff'}; ${held ? 'box-shadow:0 6px 14px rgba(37,99,235,.18);' : ''}">
+                    <span style="flex:0 0 22px; font-size:12.5px; font-weight:900; color:#94a3b8;">${i + 1}</span>
+                    <span style="flex:1; min-width:0; font-size:14px; font-weight:800; color:#0f172a; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${gEsc(name)}</span>
+                    <span data-apt-grip="${i}" title="끌어서 옮기기"
+                        style="flex:0 0 auto; width:42px; height:36px; display:flex; align-items:center; justify-content:center; border:1.5px solid #e2e8f0; border-radius:9px; background:#f8fafc; color:#64748b; font-size:16px; font-weight:900; cursor:grab; touch-action:none; user-select:none;">≡</span>
+                </div>`;
+            }).join('');
+        }
+
+        /* [수정] ↑↓ 단추 대신 ≡ 를 끌어서 옮긴다. 손가락으로도 되게 포인터 이벤트를 쓴다.
+           목록은 손잡이(≡)에서만 잡히므로, 줄을 쓸어 올려 목록을 굴리는 것도 그대로 된다. */
+        let aptDrag = null;
+        function aptDragMove(e) {
+            if (!aptDrag) return;
+            e.preventDefault();
+            const step = Math.round((e.clientY - aptDrag.startY) / aptDrag.rowH);
+            const to = Math.min(Math.max(aptDrag.i + step, 0), aptOrderEdit.length - 1);
+            if (to !== aptDrag.i) {
+                const moved = aptOrderEdit.splice(aptDrag.i, 1)[0];
+                aptOrderEdit.splice(to, 0, moved);
+                aptDrag.startY += (to - aptDrag.i) * aptDrag.rowH;   // 옮긴 만큼 기준도 옮긴다
+                aptDrag.i = to;
+                renderAptOrder();
+            }
+        }
+        function aptDragEnd() {
+            aptDrag = null;
+            document.removeEventListener('pointermove', aptDragMove);
+            document.removeEventListener('pointerup', aptDragEnd);
+            document.removeEventListener('pointercancel', aptDragEnd);
+            renderAptOrder();
+        }
+        document.addEventListener('pointerdown', e => {
+            const grip = e.target && e.target.closest ? e.target.closest('[data-apt-grip]') : null;
+            if (!grip) return;
+            e.preventDefault();
+            // 줄 하나 높이 — 줄 사이 간격으로 잰다. 못 재면 넉넉한 값을 쓴다 (0으로 나누지 않게)
+            const rows = [...document.querySelectorAll('[data-apt-row]')];
+            const a = rows[0] && rows[0].getBoundingClientRect();
+            const b = rows[1] && rows[1].getBoundingClientRect();
+            const rowH = (a && b && b.top - a.top > 1) ? (b.top - a.top) : ((a && a.height > 1) ? a.height + 6 : 60);
+            aptDrag = { i: +grip.dataset.aptGrip, startY: e.clientY, rowH };
+            document.addEventListener('pointermove', aptDragMove);
+            document.addEventListener('pointerup', aptDragEnd);
+            document.addEventListener('pointercancel', aptDragEnd);
+            renderAptOrder();
+        });
+
+        async function saveAptOrder() {
+            const btn = document.getElementById('apt-order-save');
+            if (btn) { btn.disabled = true; btn.innerText = '저장 중...'; }
+            APT_ORDER = aptOrderEdit.slice();
+            try { localStorage.setItem(APT_ORDER_KEY, JSON.stringify(APT_ORDER)); } catch (e) { }
+            let ok = true;
+            try {
+                const res = await fetch(`${FIREBASE_DB_URL}apartment_order.json`, {
+                    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(APT_ORDER)
+                });
+                ok = res.ok;
+            } catch (e) { ok = false; }
+            if (btn) { btn.disabled = false; btn.innerText = '저장'; }
+            showToast(ok ? '아파트 차례를 저장했습니다.' : '서버 저장에 실패했습니다. 이 기기에서만 바뀝니다.');
+            closeAptOrder();
+            renderFilteredData();   // 바뀐 차례로 단추를 다시 그린다
+        }
+
         /* ===== [신규] 공동현관 비번 조회 =====
            지금까지 배달 간 아파트를 모아 보여 주고, 아파트 → 동 → 비번 순으로 파고든다.
            예전에는 아파트와 동을 둘 다 고른 뒤에야 비번 칸이 떴다. 그래서 오늘 안 가는
@@ -1834,7 +1977,9 @@
            목록은 받아 둔 주문에서 만든다 (따로 받는 자료가 없어 부담이 없다). */
         let _pwdView = { apt: '', dong: '' };
 
-        function openPasswordFinder() {
+        let _pwdFromSettings = false;   // [신규] 설정에서 들어왔으면 첫 화면에도 '‹' 를 두어 설정으로 돌아간다
+        function openPasswordFinder(fromSettings) {
+            _pwdFromSettings = !!fromSettings;
             _pwdView = { apt: "", dong: "" }; _pwdEdit = false;
             const box = document.getElementById('pwd-finder-modal');
             if (box) box.style.display = 'flex';
@@ -1851,6 +1996,7 @@
         function pwdFinderBack() {
             if (_pwdView.dong) _pwdView.dong = '';
             else if (_pwdView.apt) _pwdView.apt = '';
+            else if (_pwdFromSettings) { closePasswordFinder(); openSettings(); return; }
             renderPasswordFinder();
         }
 
@@ -2062,7 +2208,7 @@
             const tree = gPwdTree();
             const has = (apt, dong) => gSlotsOf(apt, dong).some(s => String(s.pwd || '').trim());
 
-            if (back) back.style.display = (_pwdView.apt || _pwdView.dong) ? '' : 'none';
+            if (back) back.style.display = (_pwdView.apt || _pwdView.dong || _pwdFromSettings) ? '' : 'none';
 
             /* 줄 하나짜리 목록. 상자를 겹겹이 두르면 좁은 화면에서 조잡해 보여서,
                얇은 가로선으로만 나누고 오른쪽 끝에 딸림 정보를 흐리게 둔다. */
@@ -2472,13 +2618,10 @@
                 const hasDong = rawDong && rawDong !== 9999;
                 const dongLabel = zoneName ? `${zoneName} ` : (hasDong ? `${rawDong}동 ` : '');
 
-                let fullDongHo = "";
-                if (activeApartment === "전체") {
-                    const aptName = extractApartmentName(representativeItem.address);
-                    fullDongHo = `[${aptName}] ${dongLabel}${hoLabel}`;
-                } else {
-                    fullDongHo = `${dongLabel}${hoLabel}`;
-                }
+                /* [수정] 아파트를 고르면 이름을 빼고 '102동 1304호'만 찍었다.
+                   어느 아파트를 보고 있는지 카드만으로는 알 수 없어, 골랐을 때도 이름을 붙인다. */
+                const aptName = extractApartmentName(representativeItem.address);
+                const fullDongHo = `[${aptName}] ${dongLabel}${hoLabel}`;
 
                 // 전화번호 포맷 정규화
                 const cleanPhone = String(customer.phone || "").replace(/\D/g, "");
@@ -2522,13 +2665,14 @@
                 card.innerHTML = `
                     <div class="rider-card-header">
                         <span class="unit-number">${fullDongHo}</span>
-                        <span class="customer-name">${customer.name} 고객님</span>
+                        <span class="customer-name">${customer.name}</span>
                     </div>
                     <div class="rider-card-body">
                         <div class="address-text">
                             <span class="addr-full">${representativeItem.address || ""} ${representativeItem.addressDetail || ""}</span>
-                            ${needsAddrCopy(representativeItem.address) ? `
+                            ${String(representativeItem.address || "").trim() ? `
                                 <!-- [수정] 내비에 찍는 건 도로명주소라 상세주소(호수)는 빼고 주소만 복사한다 -->
+                                <!-- [수정] 빌라뿐 아니라 아파트도 복사할 수 있게 했다. 내비에 이름 대신 주소를 찍는 일이 있다 -->
                                 <button type="button" class="addr-copy-btn"
                                     onclick="copyAddress(this, '${encodeURIComponent(String(representativeItem.address || "").trim())}')">📋 복사</button>
                             ` : ''}
@@ -2926,10 +3070,46 @@
             //  이게 없으면 빌라가 전부 '기타'로 떠서 어느 집인지 알 수 없다.
             Promise.all([
                 loadApartmentCustom().catch(e => console.warn('구역 자료 실패:', e)),
-                loadApartmentTable().catch(e => console.warn('아파트 표 실패:', e))
+                loadApartmentTable().catch(e => console.warn('아파트 표 실패:', e)),
+                loadApartmentOrder().catch(e => console.warn('아파트 차례 실패:', e))
             ]).finally(() => loadData());
         };
     </script>
+    <!-- [신규] 설정 창 — 공동현관 비번 · 아파트 차례 -->
+    <div id="settings-modal" style="display:none; position:fixed; z-index:10050; left:0; top:0; width:100%; height:100%; background:rgba(15,23,42,0.55); align-items:center; justify-content:center; padding:14px; box-sizing:border-box;" onclick="if(event.target===this) closeSettings()">
+        <div style="background:#fff; border-radius:16px; width:100%; max-width:380px; overflow:hidden; box-shadow:0 20px 50px rgba(0,0,0,0.25);">
+            <div style="padding:13px 15px; border-bottom:1px solid #e2e8f0; display:flex; align-items:center; gap:8px;">
+                <div style="flex:1; font-size:15px; font-weight:900; color:#0f172a;">⚙️ 설정</div>
+                <span onclick="closeSettings()" style="flex:0 0 auto; font-size:24px; font-weight:800; color:#94a3b8; cursor:pointer; line-height:1;">&times;</span>
+            </div>
+            <div style="padding:12px 15px 16px; display:flex; flex-direction:column; gap:9px;">
+                <button type="button" onclick="settingsOpenPwd()"
+                    style="width:100%; text-align:left; padding:14px 15px; border:1.5px solid #e2e8f0; background:#fff; border-radius:12px; font-size:14.5px; font-weight:800; color:#0f172a; cursor:pointer;">🚪 공동현관 비번</button>
+                <button type="button" onclick="openAptOrder()"
+                    style="width:100%; text-align:left; padding:14px 15px; border:1.5px solid #e2e8f0; background:#fff; border-radius:12px; font-size:14.5px; font-weight:800; color:#0f172a; cursor:pointer;">🏢 아파트 차례</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- [신규] 아파트 차례 창 — 위로 올린 아파트가 앞에 나온다 -->
+    <div id="apt-order-modal" style="display:none; position:fixed; z-index:10051; left:0; top:0; width:100%; height:100%; background:rgba(15,23,42,0.55); align-items:center; justify-content:center; padding:14px; box-sizing:border-box;" onclick="if(event.target===this) closeAptOrder()">
+        <div style="background:#fff; border-radius:16px; width:100%; max-width:400px; max-height:86vh; display:flex; flex-direction:column; overflow:hidden; box-shadow:0 20px 50px rgba(0,0,0,0.25);">
+            <div style="padding:13px 15px; border-bottom:1px solid #e2e8f0; display:flex; align-items:center; gap:8px;">
+                <button type="button" onclick="closeAptOrder(); openSettings();" style="flex:0 0 auto; width:34px; height:34px; border:1.5px solid #e2e8f0; background:#fff; color:#475569; border-radius:9px; font-size:15px; font-weight:800; cursor:pointer;">‹</button>
+                <div style="flex:1; font-size:15px; font-weight:900; color:#0f172a;">🏢 아파트 차례</div>
+                <span onclick="closeAptOrder()" style="flex:0 0 auto; font-size:24px; font-weight:800; color:#94a3b8; cursor:pointer; line-height:1;">&times;</span>
+            </div>
+            <div style="padding:10px 15px 0; font-size:12px; font-weight:700; color:#94a3b8; line-height:1.5;">
+                ≡ 를 끌어서 옮기면 위에 있는 아파트가 앞에 나옵니다.<br>지금까지 배달 간 아파트를 모두 보여 줍니다.
+            </div>
+            <div id="apt-order-body" style="overflow-y:auto; padding:6px 15px 10px; -webkit-overflow-scrolling:touch;"></div>
+            <div style="padding:11px 15px 14px; border-top:1px solid #f1f5f9;">
+                <button type="button" id="apt-order-save" onclick="saveAptOrder()"
+                    style="width:100%; height:44px; border:none; background:#2563eb; color:#fff; border-radius:11px; font-size:15px; font-weight:900; cursor:pointer;">저장</button>
+            </div>
+        </div>
+    </div>
+
     <!-- [신규] 공동현관 비번 조회 창 — 아파트 → 동 → 비번 -->
     <div id="pwd-finder-modal" style="display:none; position:fixed; z-index:10050; left:0; top:0; width:100%; height:100%; background:rgba(15,23,42,0.55); align-items:center; justify-content:center; padding:14px; box-sizing:border-box;" onclick="if(event.target===this) closePasswordFinder()">
         <div style="background:#fff; border-radius:16px; width:100%; max-width:440px; max-height:86vh; display:flex; flex-direction:column; overflow:hidden; box-shadow:0 20px 50px rgba(0,0,0,0.25);">
