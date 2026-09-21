@@ -2982,8 +2982,18 @@
                 }
 
                 // 주문 상품 묶음 HTML 생성
+                /* [신규] 배달비와 배달비 차감은 두 줄로 따로 보이지 않게, 더해서 최종 배달비 한 줄만 보여 준다.
+                   (0원이 되면 줄을 아예 안 보인다) */
+                const _isFeeRow = o => { const n = String((o && o.item) || '').trim(); return n === '배달비' || n === '배달비 차감'; };
+                const _feeRows = customer.orders.filter(_isFeeRow);
+                const _feeNet = _feeRows.reduce((s, o) => s + (parseInt(String(o.total || 0).replace(/,/g, '')) || 0), 0);
+                // 입금한 배달비가 최종 배달비만큼 되면 입금완료 (예: 배달비 둘 중 하나만 입금 + 차감 하나 → 입금완료)
+                const _isPaidRow = o => o.paid === true || o.paid === "true" || o.paid === "True" || o.isPaid === true || o.isPaid === "true";
+                const _feePaidAmt = _feeRows.filter(o => _isPaidRow(o)).reduce((s, o) => s + Math.max(0, parseInt(String(o.total || 0).replace(/,/g, '')) || 0), 0);
+                const _feePaid = _feeNet > 0 ? _feePaidAmt >= _feeNet : _feeRows.filter(o => (parseInt(String(o.total || 0).replace(/,/g, '')) || 0) < 0).every(_isPaidRow);
                 let itemHtml = customer.itemsList.map((it, idx) => {
                     const origOrder = customer.orders[idx];
+                    if (_isFeeRow(origOrder)) return '';
                     const isPaidItem = origOrder && (origOrder.paid === true || origOrder.paid === "true" || origOrder.paid === "True" || origOrder.isPaid === true || origOrder.isPaid === "true");
                     return `
                         <div class="item-row" style="display: flex; justify-content: space-between; align-items: center;">
@@ -2991,7 +3001,11 @@
                             <span class="item-qty">${it.qty}개</span>
                         </div>
                     `;
-                }).join('');
+                }).join('') + (_feeNet ? `
+                        <div class="item-row" style="display: flex; justify-content: space-between; align-items: center;">
+                            <span>${_feeNet > 0 ? '배달비' : '배달비 차감'} ${_feePaid ? `<span style="font-size:10px; font-weight:800; background:#e8f5e9; color:#2e7d32; padding:1px 4px; border-radius:3px; margin-left:4px;">💵 입금완료</span>` : `<span style="font-size:10px; font-weight:800; background:#fef2f2; color:#ef4444; padding:1px 4px; border-radius:3px; margin-left:4px;">🔴 미입금</span>`}</span>
+                            <span class="item-qty">${_feeNet.toLocaleString()}원</span>
+                        </div>` : '');
 
                 // 묶음 주문의 모든 orderKey들을 쉼표로 연결하여 액션 파라미터로 넘김
                 // [버그수정] 상품명에 쉼표(,)가 있으면 orderKey에 쉼표가 포함됨 → 쉼표 join/split 시 키가 쪼개져
