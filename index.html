@@ -3057,8 +3057,12 @@
                                 if (m && !seen.has(m)) { seen.add(m); rows.push(['📝', '주문메모', m, '#b45309']); }
                             });
 
-                            const hit = (customer.orders || []).find(x => String((x && x.note) || '').trim());
-                            if (hit) rows.push(['🙋', '요청사항', String(hit.note).trim(), '#1d4ed8']);
+                            // [수정] 여러 번 주문하면 요청사항도 여러 개 — 첫 것만 보이던 것을 다른 글이면 모두 보여 준다
+                            const seenNote = new Set();
+                            (customer.orders || []).forEach(o => {
+                                const n = String((o && o.note) || '').trim();
+                                if (n && !seenNote.has(n)) { seenNote.add(n); rows.push(['🙋', '요청사항', n, '#1d4ed8']); }
+                            });
 
                             if (!rows.length) return '';
                             const line = ([ico, lab, txt, color]) => `
