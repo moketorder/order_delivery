@@ -3348,7 +3348,10 @@
         // 사진 팝업 모달
         async function viewDeliveryPhotoRemote(phone, orderKey) {
             orderKey = decAttr(orderKey);
-            const photoKey = phone + "_" + orderKey;
+            // [수정] 사진을 새로 올리면 올린 시각(deliveryPhotoTime)이 바뀐다. 그 시각까지 넣어 기억해야
+            //  예전에 한 번 본 사진이 계속 뜨지 않는다.
+            const _po = (rawOrders || []).find(o => o.orderKey === orderKey);
+            const photoKey = phone + "_" + orderKey + "@" + ((_po && _po.deliveryPhotoTime) || "");
             let photoData = window.deliveryPhotos ? window.deliveryPhotos[photoKey] : null;
             if (!photoData) {
                 showLoader("사진 가져오는 중...");
@@ -3361,7 +3364,7 @@
                         || String(o.phone || "").replace(/\D/g, "") === raw
                     );
                     const cleanPhone = (hit && String(hit.firebasePhoneKey || "").replace(/\D/g, "")) || raw;
-                    const res = await fetch(`${FIREBASE_DB_URL}delivery_photos/${cleanPhone}/${orderKey}.json`);
+                    const res = await fetch(`${FIREBASE_DB_URL}delivery_photos/${cleanPhone}/${orderKey}.json?t=${Date.now()}`);
                     if (res.ok) {
                         const data = await res.json();
                         if (data && data.photo) {
