@@ -1007,6 +1007,12 @@
         const FIREBASE_DB_URL = "https://moketdb-default-rtdb.asia-southeast1.firebasedatabase.app/";
 
         let rawOrders = [];
+        /* [신규] 수기 배달 — 주문에 없는 집(전화 주문·교환 등)을 가게가 직접 넣는다. 주문과 섞이지 않게 따로 둔다.
+             manual_deliveries / 집키(전화 숫자) / m시각 = { item, qty, name, phone, address, addressDetail, note,
+                                                         pickupDate:'YYYY-MM-DD', manual:true, by, at, delivered … }
+           목록에는 주문 줄과 같은 모양으로 섞여(_manual 표시) 카드·배달완료·사진·문자가 그대로 돈다. */
+        const MANUAL_NODE = 'manual_deliveries';
+        let manualDeliveries = {};
         let entrancePasswords = {}; // 공동현관 비밀번호 로컬 캐시
         /* [신규] 아파트 하나에 하나뿐인 '공용 비번'. 동마다 다르지 않고 단지 전체가 한 비번인 곳에 쓴다.
            사장님 화면(주문관리 → 전단지 돌린 곳)에서 적어 두면 여기에도 그대로 보인다.
@@ -1621,6 +1627,8 @@
                             });
                         }
                     }
+                    try { manualDeliveries = JSON.parse(localStorage.getItem('moket_manual_cache') || '{}') || {}; } catch (e) { manualDeliveries = {}; }
+                    gMergeManual();
                     console.log("배달 주문 로컬 캐시 데이터 즉시 표시 완료");
                     buildDateTabs();
                     return true;
@@ -1643,13 +1651,17 @@
             if (syncDotEl) syncDotEl.style.backgroundColor = "#eab308";
 
             try {
-                const [response, pwdRes, comRes, pfRes, omRes] = await Promise.all([
+                const [response, pwdRes, comRes, pfRes, omRes, manRes] = await Promise.all([
                     fetch(`${FIREBASE_DB_URL}orders.json`),
                     fetch(`${FIREBASE_DB_URL}entrance_passwords.json`).catch(e => null),
                     fetch(`${FIREBASE_DB_URL}entrance_common.json`).catch(e => null),
                     fetch(`${FIREBASE_DB_URL}print_fixed_memos.json`).catch(e => null),
-                    fetch(`${FIREBASE_DB_URL}customer_memos.json`).catch(e => null)
+                    fetch(`${FIREBASE_DB_URL}customer_memos.json`).catch(e => null),
+                    fetch(`${FIREBASE_DB_URL}${MANUAL_NODE}.json`).catch(e => null)
                 ]);
+                // [신규] 수기 배달 — 못 받아도 주문 배달 목록은 그대로 나와야 한다
+                try { if (manRes && manRes.ok) manualDeliveries = (await manRes.json()) || {}; } catch (e) { }
+                try { localStorage.setItem('moket_manual_cache', JSON.stringify(manualDeliveries)); } catch (e) { }
 
                 if (!response.ok) throw new Error("Firebase 연결 실패");
                 const data = await response.json() || {};
@@ -1753,6 +1765,7 @@
                         });
                     }
                 }
+                gMergeManual();
 
                 // 타임스탬프 기준 내림차순 정렬
                 rawOrders.sort((a, b) => parseTimestampToDate(b.timestamp) - parseTimestampToDate(a.timestamp));
@@ -2691,11 +2704,103 @@
             }
         }
         function dlogPick(nameEnc) { dlogRider = decAttr(nameEnc); dlogRender(); }
+
+        /* [신규] 건수만 추가 — 앱으로 완료를 못 누른 배달을 나중에 정산에 넣는다 (목록 카드는 안 생긴다).
+           고른 날짜의 배달 기록에 'manual' 표시를 단 칸을 건수만큼 만든다. 그 칸만 여기서 지울 수 있다. */
+        let dlogAddOpen = false;
+        let dlogStaff = null;            // [{ uid, name, role }]
+        async function dlogLoadStaff() {
+            if (dlogStaff) return dlogStaff;
+            try {
+                const r = await fetch(`${FIREBASE_DB_URL}staff.json`);
+                const s = r.ok ? (await r.json()) || {} : {};
+                dlogStaff = Object.keys(s).map(uid => ({ uid, name: (s[uid] && (s[uid].name || s[uid].email)) || '이름 없음', role: (s[uid] && s[uid].role) || '' }))
+                    .sort((a, b) => (a.role === 'rider' ? 0 : 1) - (b.role === 'rider' ? 0 : 1) || a.name.localeCompare(b.name, 'ko'));
+            } catch (e) { dlogStaff = []; }
+            return dlogStaff;
+        }
+        async function dlogToggleAdd(on) {
+            dlogAddOpen = on;
+            if (on) await dlogLoadStaff();
+            dlogRender();
+        }
+        async function dlogAddSave() {
+            if (!payIsStore()) return;
+            const ymd = document.getElementById('dlog-date').value;
+            const mm = String(ymd || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+            const uid = (document.getElementById('dlog-add-who') || {}).value || '';
+            const n = Math.min(50, payDigits((document.getElementById('dlog-add-n') || {}).value));
+            const place = ((document.getElementById('dlog-add-place') || {}).value || '').trim();
+            const who = (dlogStaff || []).find(s => s.uid === uid);
+            if (!mm) { showToast('날짜를 골라 주세요.'); return; }
+            if (!who) { showToast('기사를 골라 주세요.'); return; }
+            if (!n) { showToast('건수를 적어 주세요.'); return; }
+            const me = window.gStaffMe || {};
+            // 시각: 오늘이면 지금, 지난 날이면 그날 낮 12시로 둔다
+            const today = dlogYmd(new Date()) === ymd;
+            const at = today ? Date.now() : new Date(+mm[1], +mm[2] - 1, +mm[3], 12, 0).getTime();
+            const base = Date.now();
+            const patch = {};
+            for (let i = 0; i < n; i++) {
+                patch[`m${base}${String(i).padStart(2, '0')}`] = {
+                    rider: who.uid, riderName: who.name, at: at + i,
+                    name: '', apt: '', detail: place || '수기', items: 0,
+                    manual: true, by: me.name || me.email || ''
+                };
+            }
+            showLoader('추가하는 중...');
+            try {
+                const r = await fetch(`${FIREBASE_DB_URL}${DELIV_NODE}/${mm[1]}-${mm[2]}/${mm[3]}.json`, {
+                    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch)
+                });
+                if (!r.ok) throw new Error('서버 응답 ' + r.status);
+                Object.assign(dlogData, patch);
+                delete deliveryRecordCache[`${mm[1]}-${mm[2]}/${mm[3]}`];
+                dlogAddOpen = false;
+                showToast(`${who.name} ${n}건 추가`);
+                dlogRender();
+            } catch (e) { console.warn(e); showToast('⚠️ 추가하지 못했습니다.'); }
+            finally { hideLoader(); }
+        }
+        async function dlogDel(houseEnc) {
+            if (!payIsStore()) return;
+            const house = decAttr(houseEnc);
+            const rec = dlogData[house];
+            if (!rec || !rec.manual) return;
+            if (!confirm(`${rec.riderName || ''} 수기 1건을 지울까요?`)) return;
+            const ymd = document.getElementById('dlog-date').value;
+            const [y, m, d] = ymd.split('-');
+            try {
+                const r = await fetch(`${FIREBASE_DB_URL}${DELIV_NODE}/${y}-${m}/${d}/${encodeURIComponent(house)}.json`, { method: 'DELETE' });
+                if (!r.ok) throw new Error('서버 응답 ' + r.status);
+                delete dlogData[house];
+                delete deliveryRecordCache[`${y}-${m}/${d}`];
+                showToast('지웠습니다.');
+                dlogRender();
+            } catch (e) { console.warn(e); showToast('⚠️ 지우지 못했습니다.'); }
+        }
+        function dlogAddHtml() {
+            if (!payIsStore()) return '';
+            if (!dlogAddOpen) return `<button type="button" class="dlog-add" onclick="dlogToggleAdd(true)">＋ 건수 추가</button>`;
+            const opts = (dlogStaff || []).map(s => `<option value="${gEsc(s.uid)}">${gEsc(s.name)}${s.role === 'store' ? ' (가게)' : ''}</option>`).join('');
+            return `<div class="dlog-addbox">
+                <div class="dlog-addrow">
+                    <select id="dlog-add-who" aria-label="기사"><option value="">기사</option>${opts}</select>
+                    <input id="dlog-add-n" type="text" inputmode="numeric" value="1" aria-label="건수"><span class="u">건</span>
+                </div>
+                <input id="dlog-add-place" type="text" placeholder="어디 (안 적어도 됨)">
+                <div class="dlog-addrow">
+                    <button type="button" class="go" onclick="dlogAddSave()">추가</button>
+                    <button type="button" onclick="dlogToggleAdd(false)">닫기</button>
+                </div>
+            </div>`;
+        }
+
         function dlogRender() {
             const body = document.getElementById('dlog-body');
             const recs = Object.entries(dlogData).map(([h, r]) => Object.assign({ house: h }, r || {}))
                 .sort((a, b) => (a.at || 0) - (b.at || 0));
-            if (!recs.length) { body.innerHTML = `<div class="pay-empty">이날 배달 기록이 없습니다.</div>`; return; }
+            if (!recs.length) { body.innerHTML = `<div class="pay-empty">이날 배달 기록이 없습니다.</div>${dlogAddHtml()}`; return; }
             const counts = {};
             recs.forEach(r => { const k = r.riderName || '이름 없음'; counts[k] = (counts[k] || 0) + 1; });
             const chip = (label, val, n) => `<button type="button" class="dlog-chip${dlogRider === val ? ' on' : ''}" onclick="dlogPick('${encAttr(val)}')">${gEsc(label)} ${n}</button>`;
@@ -2706,11 +2811,11 @@
                 const place = [r.apt && r.apt !== '기타' ? `[${r.apt}]` : '', r.detail || ''].join(' ').trim() || '-';
                 return `<div class="dlog-row">
                     <span class="t">${hm(r.at)}</span>
-                    <span class="h"><b>${gEsc(place)}</b><span>${gEsc(r.name || '')}${r.items ? ` · ${r.items}개` : ''}</span></span>
-                    <span class="r">${gEsc(r.riderName || '')}${r.photo ? `<small>📸 사진${r.photoBy && r.photoBy !== r.riderName ? ` · ${gEsc(r.photoBy)}` : ''}</small>` : ''}</span>
+                    <span class="h"><b>${gEsc(place)}${r.manual ? ' <span class="man-tag">✍️ 수기</span>' : ''}</b><span>${gEsc(r.name || '')}${r.items ? ` · ${r.items}개` : ''}${r.manual && r.by ? `${r.name ? ' · ' : ''}${gEsc(r.by)} 추가` : ''}</span></span>
+                    <span class="r">${gEsc(r.riderName || '')}${r.photo ? `<small>📸 사진${r.photoBy && r.photoBy !== r.riderName ? ` · ${gEsc(r.photoBy)}` : ''}</small>` : ''}${r.manual ? `<button type="button" class="man-del" style="margin-top:3px;" onclick="dlogDel('${encAttr(r.house)}')">삭제</button>` : ''}</span>
                 </div>`;
             }).join('');
-            body.innerHTML = `<div class="dlog-chips">${chips}</div><div class="dlog-list">${rows}</div>`;
+            body.innerHTML = `<div class="dlog-chips">${chips}</div><div class="dlog-list">${rows}</div>${dlogAddHtml()}`;
         }
 
         function closeSettings() { document.getElementById('settings-modal').style.display = 'none'; }
@@ -3508,6 +3613,15 @@
                     const origOrder = customer.orders[idx];
                     if (_isFeeRow(origOrder)) return '';
                     const isPaidItem = origOrder && (origOrder.paid === true || origOrder.paid === "true" || origOrder.paid === "True" || origOrder.isPaid === true || origOrder.isPaid === "true");
+                    // [신규] 수기 배달 줄 — 입금 표시 대신 '수기', 가게는 지울 수 있다
+                    if (origOrder && origOrder._manual) return `
+                        <div class="item-row" style="display: flex; justify-content: space-between; align-items: center; gap:6px;">
+                            <span>${gEsc(it.name)} <span class="man-tag">✍️ 수기</span></span>
+                            <span style="display:inline-flex; align-items:center; gap:6px;">
+                                <span class="item-qty">${it.qty}개</span>
+                                ${gIsStore() ? `<button type="button" class="man-del" onclick="gManualDelete('${encAttr(origOrder.firebasePhoneKey)}', '${encAttr(origOrder.orderKey)}')">삭제</button>` : ''}
+                            </span>
+                        </div>`;
                     return `
                         <div class="item-row" style="display: flex; justify-content: space-between; align-items: center;">
                             <span>${it.name} ${isPaidItem ? `<span style="font-size:10px; font-weight:800; background:#e8f5e9; color:#2e7d32; padding:1px 4px; border-radius:3px; margin-left:4px;">💵 입금완료</span>` : `<span style="font-size:10px; font-weight:800; background:#fef2f2; color:#ef4444; padding:1px 4px; border-radius:3px; margin-left:4px;">🔴 미입금</span>`}</span>
@@ -3574,7 +3688,8 @@
                             const seenNote = new Set();
                             (customer.orders || []).forEach(o => {
                                 const n = String((o && o.note) || '').trim();
-                                if (n && !seenNote.has(n)) { seenNote.add(n); rows.push(['🙋', '요청사항', n, '#1d4ed8']); }
+                                // [신규] 수기 배달의 메모는 손님 말이 아니라 가게가 적은 말이다
+                                if (n && !seenNote.has(n)) { seenNote.add(n); rows.push(o._manual ? ['✍️', '가게메모', n, '#6d28d9'] : ['🙋', '요청사항', n, '#1d4ed8']); }
                             });
 
                             if (!rows.length) return '';
@@ -3819,6 +3934,254 @@
             return `${gEsc(rec.riderName || '')} · ${when}`;
         }
 
+        /* ── [신규] 수기 배달 (가게만 넣고 지운다. 배달완료·사진·문자는 기사도 주문처럼 한다) ── */
+        // 받아 둔 수기 배달을 주문 줄 모양으로 rawOrders 에 섞는다
+        function gMergeManual() {
+            rawOrders = rawOrders.filter(o => !o._manual);
+            Object.keys(manualDeliveries || {}).forEach(house => {
+                const box = manualDeliveries[house];
+                if (!box || typeof box !== 'object') return;
+                Object.keys(box).forEach(key => {
+                    const it = box[key];
+                    if (!it || typeof it !== 'object' || !it.item) return;
+                    const delivered = it.delivered === true || String(it.delivered).toUpperCase() === 'TRUE';
+                    rawOrders.push(Object.assign({}, it, {
+                        firebasePhoneKey: house, phone: it.phone || house, orderKey: key,
+                        _manual: true, status: delivered ? '배달완료' : '입고'
+                    }));
+                });
+            });
+        }
+
+        // 아파트 이름을 고르면 주소 칸에는 도로명(없으면 이름 조각)을 넣어 아파트·동 묶음이 맞게 한다
+        function gManualAddrOf(text) {
+            const t = String(text || '').trim();
+            const hit = APT_TABLE.find(a => a && a.name === t);
+            if (!hit) return t;
+            const road = (hit.roads || [])[0];
+            return road ? `${road} (${hit.name})` : ((hit.words || [])[0] || hit.name);
+        }
+        function gYmdOfView() {
+            const y = parseInt(currentYear), m = parseInt(currentMonth), d = parseInt(currentDay);
+            if (y && m && d) return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+            return dlogYmd(new Date());
+        }
+        function openManual() {
+            if (!gIsStore()) { showToast('가게 계정만 넣을 수 있습니다.'); return; }
+            closeSettings();
+            ['man-phone', 'man-name', 'man-addr', 'man-detail', 'man-memo'].forEach(id => { document.getElementById(id).value = ''; });
+            document.getElementById('man-item').value = '';
+            document.getElementById('man-date').value = gYmdOfView();
+            const dl = document.getElementById('man-apts');
+            dl.innerHTML = [...new Set(APT_TABLE.map(a => a.name))].map(n => `<option value="${gEsc(n)}"></option>`).join('');
+            document.getElementById('man-hint').textContent = '';
+            document.getElementById('man-find').value = '';
+            document.getElementById('man-find-list').innerHTML = '';
+            const post = document.getElementById('man-post'); post.style.display = 'none'; post.innerHTML = '';
+            manualRoad = ''; manualEntrance = '';
+            document.getElementById('manual-modal').style.display = 'flex';
+            manualLoadCustomers();
+            setTimeout(() => document.getElementById('man-find').focus(), 50);
+        }
+        function closeManual() { document.getElementById('manual-modal').style.display = 'none'; }
+
+        /* [신규] 손님 찾기 — 손님 명부(customers, 가게만 읽음)와 지금 받아 둔 주문을 합쳐 이름·번호로 찾는다.
+           명부는 창을 처음 열 때 한 번만 받는다(기사 앱이라 평소엔 안 받는다). 못 받아도 주문 손님은 찾힌다. */
+        let manualCustomers = null;      // [{ phone, name, address, addressDetail, entrance, roadAddress }]
+        let manualRoad = '';             // 주소 검색으로 고른 도로명주소
+        let manualEntrance = '';         // 고른 손님의 공동현관 입력값
+        async function manualLoadCustomers() {
+            if (manualCustomers) return;
+            const map = {};
+            const put = (phone, v) => {
+                const p = normalizePhoneNumber(phone);
+                if (!/^01\d{8,9}$/.test(p)) return;
+                const cur = map[p] || (map[p] = { phone: p });
+                ['name', 'address', 'addressDetail', 'entrance', 'roadAddress'].forEach(f => {
+                    const x = String((v && v[f]) || '').trim();
+                    if (x && !cur[f]) cur[f] = x;
+                });
+            };
+            try {
+                const r = await fetch(`${FIREBASE_DB_URL}customers.json`);
+                const c = r.ok ? (await r.json()) || {} : {};
+                Object.keys(c).forEach(k => { const x = c[k] || {}; if (x.withdrawn) return; put(k, Object.assign({}, x, { name: x.name || x.kakaoName || '' })); });
+            } catch (e) { console.warn('손님 명부 불러오기 실패:', e); }
+            // 주문에만 있는 손님도 넣는다 (주소는 상세주소가 붙어 있을 수 있어 떼어 낸다)
+            rawOrders.forEach(o => {
+                if (o._manual) return;
+                const detail = String(o.addressDetail || '').trim();
+                let addr = String(o.address || '').trim();
+                if (detail && addr.endsWith(detail)) addr = addr.slice(0, -detail.length).trim();
+                put(o.phone, { name: o.name, address: addr, addressDetail: detail, entrance: o.entrance, roadAddress: o.roadAddress });
+            });
+            manualCustomers = Object.values(map);
+            const q = (document.getElementById('man-find') || {}).value;
+            if (q) manualFind(q);
+        }
+        function manualFind(q) {
+            const box = document.getElementById('man-find-list');
+            const s = String(q || '').trim();
+            if (!s) { box.innerHTML = ''; return; }
+            if (!manualCustomers) { box.innerHTML = '<div class="none">손님 명부 받는 중...</div>'; return; }
+            const digits = s.replace(/\D/g, '');
+            const word = s.replace(/\s+/g, '');
+            const hits = manualCustomers.filter(c =>
+                (digits.length >= 3 && c.phone.includes(digits))
+                || (!digits && String(c.name || '').replace(/\s+/g, '').includes(word))
+            ).slice(0, 8);
+            if (!hits.length) { box.innerHTML = '<div class="none">찾는 손님이 없습니다</div>'; return; }
+            box.innerHTML = hits.map(c => {
+                const apt = extractApartmentName(c.roadAddress || c.address);
+                const place = (apt && apt !== '기타') ? `[${apt}] ${c.addressDetail || ''}` : `${gShortRoadAddr(c.address || '')} ${c.addressDetail || ''}`;
+                const ph = c.phone.replace(/^(\d{3})(\d{3,4})(\d{4})$/, '$1-$2-$3');
+                return `<button type="button" onclick="manualPick('${c.phone}')"><b>${gEsc(c.name || '이름 없음')} · ${ph}</b><small>${gEsc(place.trim() || '주소 없음')}</small></button>`;
+            }).join('');
+        }
+        function manualPick(phone) {
+            const c = (manualCustomers || []).find(x => x.phone === phone);
+            if (!c) return;
+            const set = (id, v) => { document.getElementById(id).value = v || ''; };
+            set('man-phone', c.phone); set('man-name', c.name); set('man-addr', c.address); set('man-detail', c.addressDetail);
+            manualRoad = c.roadAddress || '';
+            manualEntrance = c.entrance || '';
+            document.getElementById('man-find').value = '';
+            document.getElementById('man-find-list').innerHTML = '';
+            document.getElementById('man-hint').textContent = `${c.name || ''} 손님을 골랐습니다`;
+            document.getElementById('man-item').focus();
+        }
+        /* [신규] 주소 검색 — 주문관리와 같은 다음 우편번호 창. 폰에서 새 창이 막히지 않게 이 창 안에 펼친다. */
+        function gLoadPostcode() {
+            return new Promise((resolve, reject) => {
+                if (window.daum && window.daum.Postcode) return resolve();
+                const s = document.createElement('script');
+                s.src = 'https://t1.daumcdn.net/mapjsapi/bundle/postcode/prod/postcode.v2.js';
+                s.onload = () => resolve();
+                s.onerror = () => reject(new Error('주소 검색을 불러오지 못했습니다. 인터넷을 확인해 주세요.'));
+                document.head.appendChild(s);
+            });
+        }
+        async function manualAddrSearch() {
+            const box = document.getElementById('man-post');
+            if (box.style.display !== 'none') { box.style.display = 'none'; box.innerHTML = ''; return; }
+            try { await gLoadPostcode(); } catch (e) { showToast(e.message); return; }
+            box.innerHTML = '';
+            box.style.display = 'block';
+            new daum.Postcode({
+                oncomplete: function (data) {
+                    let addr = (data.userSelectedType === 'R') ? data.roadAddress : data.jibunAddress;
+                    let extra = '';
+                    if (data.userSelectedType === 'R') {
+                        if (data.bname && /[동|로|가]$/.test(data.bname)) extra += data.bname;
+                        if (data.buildingName && data.apartment === 'Y') extra += (extra ? ', ' + data.buildingName : data.buildingName);
+                        if (extra) extra = ' (' + extra + ')';
+                    }
+                    document.getElementById('man-addr').value = addr + extra;
+                    manualRoad = String(data.roadAddress || '');
+                    box.style.display = 'none'; box.innerHTML = '';
+                    document.getElementById('man-detail').focus();
+                },
+                width: '100%', height: '100%'
+            }).embed(box, { autoClose: false });
+        }
+        // 번호를 다 적으면 예전 주문에서 이름·주소를 찾아 빈칸만 채운다
+        function manualPhoneLookup() {
+            const p = normalizePhoneNumber(document.getElementById('man-phone').value);
+            const hint = document.getElementById('man-hint');
+            if (p.length < 10) { hint.textContent = ''; return; }
+            // 손님 명부에 있으면 그것으로 채운다
+            if ((manualCustomers || []).some(c => c.phone === p)) {
+                const nm = document.getElementById('man-name').value.trim(), ad = document.getElementById('man-addr').value.trim();
+                if (!nm && !ad) { manualPick(p); return; }
+            }
+            const hit = rawOrders.find(o => !o._manual && normalizePhoneNumber(o.phone) === p && String(o.address || '').trim());
+            if (!hit) { hint.textContent = '처음 보는 번호'; return; }
+            const fill = (id, v) => { const el = document.getElementById(id); if (!el.value.trim() && v) el.value = String(v).trim(); };
+            fill('man-name', hit.name);
+            // 주문 줄 주소에는 상세주소가 붙어 있을 수 있어 떼어 낸다
+            const detail = String(hit.addressDetail || '').trim();
+            let addr = String(hit.address || '').trim();
+            if (detail && addr.endsWith(detail)) addr = addr.slice(0, -detail.length).trim();
+            fill('man-addr', addr);
+            fill('man-detail', detail);
+            hint.textContent = `${hit.name || ''} 손님 주소를 채웠습니다`;
+        }
+        async function manualSave() {
+            if (!gIsStore()) return;
+            const v = id => document.getElementById(id).value.trim();
+            const phone = normalizePhoneNumber(v('man-phone'));
+            const ymd = v('man-date');
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) { showToast('날짜를 골라 주세요.'); return; }
+            if (phone.length < 9) { showToast('전화번호를 적어 주세요.'); return; }
+            if (!v('man-addr')) { showToast('주소를 적어 주세요.'); return; }
+            const me = window.gStaffMe || {};
+            const key = 'm' + Date.now();
+            // 같은 손님 주문이 있으면 공동현관 입력값도 이어 쓴다
+            const prev = rawOrders.find(o => normalizePhoneNumber(o.phone) === phone && o.entrance);
+            const row = {
+                item: v('man-item') || '수기 배달', qty: 1, total: 0,
+                name: v('man-name') || '이름 없음', phone,
+                address: gManualAddrOf(v('man-addr')), addressDetail: v('man-detail'),
+                roadAddress: manualRoad || '',
+                note: v('man-memo'), entrance: manualEntrance || (prev && prev.entrance) || '',
+                pickupDate: ymd, timestamp: `${ymd} 00:00:00`, shippingMethod: '배달주문',
+                manual: true, by: me.name || me.email || '', at: Date.now()
+            };
+            showLoader('수기 배달 넣는 중...');
+            try {
+                const r = await fetch(`${FIREBASE_DB_URL}${MANUAL_NODE}/${phone}/${key}.json`, {
+                    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(row)
+                });
+                if (!r.ok) throw new Error('서버 응답 ' + r.status);
+                (manualDeliveries[phone] = manualDeliveries[phone] || {})[key] = row;
+                try { localStorage.setItem('moket_manual_cache', JSON.stringify(manualDeliveries)); } catch (e) { }
+                gMergeManual();
+                // 넣은 날짜로 옮겨 바로 보이게 한다
+                const [y, m, d] = ymd.split('-').map(Number);
+                currentYear = `${y}년`; currentMonth = `${m}월`; currentDay = `${d}일`;
+                buildDateTabs();
+                closeManual();
+                showToast(`${m}/${d} 수기 배달을 넣었습니다.`);
+            } catch (e) {
+                console.warn(e);
+                showToast('⚠️ 넣지 못했습니다. (규칙 게시 전이면 막혀 있습니다)');
+            } finally { hideLoader(); }
+        }
+        /* 수기 배달 지우기 (가게만). 배달완료한 것이면 그 집·그날 배달 기록도 이 줄로만 된 것일 때 같이 지운다
+           (정산 건수에서 빠진다). 주문과 같이 묶인 기록이면 기록은 그대로 둔다. */
+        async function gManualDelete(houseEnc, keyEnc) {
+            if (!gIsStore()) return;
+            const house = decAttr(houseEnc), key = decAttr(keyEnc);
+            const row = rawOrders.find(o => o._manual && o.orderKey === key);
+            if (!row) return;
+            const done = row.status === '배달완료';
+            if (!confirm(`수기 배달을 지울까요?\n${row.name || ''} · ${row.item || ''}${done ? '\n\n배달완료한 건이라 정산 건수에서도 빠집니다.' : ''}`)) return;
+            showLoader('지우는 중...');
+            try {
+                const r = await fetch(`${FIREBASE_DB_URL}${MANUAL_NODE}/${encodeURIComponent(house)}/${encodeURIComponent(key)}.json`, { method: 'DELETE' });
+                if (!r.ok) throw new Error('서버 응답 ' + r.status);
+                fetch(`${FIREBASE_DB_URL}delivery_photos/${encodeURIComponent(house)}/${encodeURIComponent(key)}.json`, { method: 'DELETE' }).catch(() => { });
+                const parts = gDelivParts(row);
+                if (done && parts) {
+                    const url = `${FIREBASE_DB_URL}${DELIV_NODE}/${parts.month}/${parts.day}/${encodeURIComponent(house)}.json`;
+                    try {
+                        const r0 = await fetch(url);
+                        const rec = r0.ok ? await r0.json() : null;
+                        if (rec && Array.isArray(rec.keys) && rec.keys.every(k => k === key)) {
+                            const rd = await fetch(url, { method: 'DELETE' });
+                            if (rd.ok && deliveryRecordCache[`${parts.month}/${parts.day}`]) delete deliveryRecordCache[`${parts.month}/${parts.day}`][house];
+                        }
+                    } catch (e) { console.warn('배달 기록 정리 실패:', e); }
+                }
+                if (manualDeliveries[house]) delete manualDeliveries[house][key];
+                try { localStorage.setItem('moket_manual_cache', JSON.stringify(manualDeliveries)); } catch (e) { }
+                gMergeManual();
+                buildDateTabs();
+                showToast('지웠습니다.');
+            } catch (e) { console.warn(e); showToast('⚠️ 지우지 못했습니다.'); }
+            finally { hideLoader(); }
+        }
+
         async function markAsDelivered(phone, orderKeysStr, customerName) {
             orderKeysStr = decAttr(orderKeysStr);
             customerName = decAttr(customerName);
@@ -3850,7 +4213,9 @@
                     const pKey = (target && target.firebasePhoneKey) ? String(target.firebasePhoneKey).trim()
                                : (target && target.phone) ? normalizePhoneNumber(target.phone)
                                : cleanPhone;
-                    const url = `${FIREBASE_DB_URL}orders/${encodeURIComponent(pKey)}/${encodeURIComponent(orderKey)}.json`;
+                    // [신규] 수기 배달 줄은 주문이 아니라 manual_deliveries 에 표시한다
+                    const node = (target && target._manual) ? MANUAL_NODE : 'orders';
+                    const url = `${FIREBASE_DB_URL}${node}/${encodeURIComponent(pKey)}/${encodeURIComponent(orderKey)}.json`;
                     // [수정] 예전에는 응답을 확인하지 않아, 저장이 실패해도 화면만 '배달완료'로 바뀌었다.
                     //  (전체를 다시 받아 확인하던 방식은 매번 450KB가 들어 없앴다)
                     //  성공할 때까지 3번 다시 시도하고, 끝내 실패하면 아래에서 오류로 알린다.
@@ -3959,7 +4324,8 @@
                     const pKey = (target && target.firebasePhoneKey) ? String(target.firebasePhoneKey).trim()
                                : (target && target.phone) ? normalizePhoneNumber(target.phone)
                                : cleanPhone;
-                    const url = `${FIREBASE_DB_URL}orders/${encodeURIComponent(pKey)}/${encodeURIComponent(orderKey)}.json`;
+                    const node = (target && target._manual) ? MANUAL_NODE : 'orders';   // 수기 배달 줄
+                    const url = `${FIREBASE_DB_URL}${node}/${encodeURIComponent(pKey)}/${encodeURIComponent(orderKey)}.json`;
                     const p = fetch(url, {
                         method: 'PATCH',
                         headers: { 'Content-Type': 'application/json' },
@@ -4144,6 +4510,9 @@
                 <!-- [신규] 배달 기록 — 그날 누가 어느 집에 갔는지 (가게 계정만) -->
                 <button type="button" data-store-only onclick="openDlog()"
                     style="width:100%; text-align:left; padding:14px 15px; border:1.5px solid #e2e8f0; background:#fff; border-radius:12px; font-size:14.5px; font-weight:800; color:#0f172a; cursor:pointer;">📋 배달 기록</button>
+                <!-- [신규] 수기 배달 — 주문에 없는 집을 배달 목록에 넣는다 (가게 계정만) -->
+                <button type="button" data-store-only onclick="openManual()"
+                    style="width:100%; text-align:left; padding:14px 15px; border:1.5px solid #e2e8f0; background:#fff; border-radius:12px; font-size:14.5px; font-weight:800; color:#0f172a; cursor:pointer;">✍️ 배달 추가</button>
                 <!-- [신규] 정산 — 가게는 전체 기사, 배달기사는 본인 것만 -->
                 <button type="button" id="btn-open-pay" onclick="openPay()"
                     style="width:100%; text-align:left; padding:14px 15px; border:1.5px solid #e2e8f0; background:#fff; border-radius:12px; font-size:14.5px; font-weight:800; color:#0f172a; cursor:pointer;">📊 정산</button>
@@ -4285,6 +4654,17 @@
         .dlog-row .h span { font-size:11.5px; font-weight:700; color:var(--text-sub); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
         .dlog-row .r { font-size:12.5px; font-weight:900; color:var(--text-main); white-space:nowrap; text-align:right; }
         .dlog-row .r small { display:block; font-size:10.5px; font-weight:800; color:var(--primary-hover); }
+        /* [신규] 건수만 추가 */
+        .dlog-row .r .man-del { display:block; margin-left:auto; }
+        .dlog-add { width:100%; height:40px; margin-top:10px; border:1.5px dashed var(--border); background:transparent; color:var(--text-sub); border-radius:10px; font:inherit; font-size:13px; font-weight:800; cursor:pointer; }
+        .dlog-addbox { margin-top:10px; padding:10px; border:1.5px solid #ddd6fe; background:#faf5ff; border-radius:10px; display:flex; flex-direction:column; gap:8px; }
+        .dlog-addrow { display:flex; align-items:center; gap:6px; }
+        .dlog-addbox select, .dlog-addbox input { height:38px; box-sizing:border-box; border:1.5px solid var(--border); border-radius:8px; padding:0 9px; font:inherit; font-size:13.5px; font-weight:700; color:var(--text-main); background:var(--card-color); min-width:0; }
+        .dlog-addbox select { flex:1; }
+        .dlog-addbox #dlog-add-n { width:56px; text-align:center; flex:0 0 auto; }
+        .dlog-addbox .u { font-size:13px; font-weight:800; color:var(--text-sub); }
+        .dlog-addbox button { flex:1; height:38px; border:1px solid var(--border); background:var(--card-color); color:var(--text-sub); border-radius:8px; font:inherit; font-size:13px; font-weight:800; cursor:pointer; }
+        .dlog-addbox button.go { border:none; background:#7c3aed; color:#fff; }
     </style>
     <div id="dlog-modal" style="display:none; position:fixed; z-index:10052; left:0; top:0; width:100%; height:100%; background:rgba(15,23,42,0.55); align-items:center; justify-content:center; padding:14px; box-sizing:border-box;" onclick="if(event.target===this) closeDlog()">
         <div style="background:#fff; border-radius:16px; width:100%; max-width:440px; max-height:88vh; display:flex; flex-direction:column; overflow:hidden; box-shadow:0 20px 50px rgba(0,0,0,0.25);">
@@ -4299,6 +4679,70 @@
                 <button type="button" onclick="dlogShift(1)" aria-label="다음날">›</button>
             </div>
             <div id="dlog-body" style="overflow-y:auto; padding:12px 15px 16px;"></div>
+        </div>
+    </div>
+
+    <!-- [신규] 수기 배달 넣기 창 (가게 계정만) -->
+    <style>
+        .man-tag { font-size:10px; font-weight:800; background:#f5f3ff; color:#6d28d9; padding:1px 5px; border-radius:3px; margin-left:4px; border:1px solid #ddd6fe; white-space:nowrap; }
+        .man-del { height:24px; padding:0 8px; border:1px solid #fecaca; background:#fff; color:#dc2626; border-radius:6px; font:inherit; font-size:11px; font-weight:800; cursor:pointer; }
+        .man-form { display:flex; flex-direction:column; gap:10px; }
+        .man-form > * { flex-shrink:0; }   /* 주소 검색을 펼쳐도 칸이 눌리지 않고 창이 스크롤된다 */
+        .man-form label { display:flex; flex-direction:column; gap:4px; font-size:12px; font-weight:800; color:var(--text-sub); }
+        .man-form label b { color:var(--red); font-weight:900; }
+        .man-form input { height:42px; box-sizing:border-box; border:1.5px solid var(--border); border-radius:9px; padding:0 11px; font:inherit; font-size:14.5px; font-weight:700; color:var(--text-main); background:var(--card-color); min-width:0; }
+        .man-form input:focus { outline:none; border-color:var(--blue); }
+        .man-two { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:8px; }
+        .man-hint { font-size:11.5px; font-weight:800; color:var(--primary-hover); min-height:14px; }
+        .man-find { position:relative; }
+        .man-find input { width:100%; background:var(--bg-color); }
+        .man-find-list { display:flex; flex-direction:column; border:1px solid var(--border); border-radius:10px; overflow:hidden; margin-top:6px; background:var(--card-color); }
+        .man-find-list:empty { display:none; }
+        .man-find-list button { display:flex; flex-direction:column; align-items:flex-start; gap:1px; text-align:left; padding:8px 11px; border:none; border-top:1px solid #e2e8f0; background:transparent; font:inherit; cursor:pointer; }
+        .man-find-list button:first-child { border-top:none; }
+        .man-find-list button:active { background:var(--bg-color); }
+        .man-find-list b { font-size:13.5px; font-weight:900; color:var(--text-main); }
+        .man-find-list small { font-size:11.5px; font-weight:700; color:var(--text-sub); }
+        .man-find-list .none { padding:9px 11px; font-size:12px; font-weight:700; color:#94a3b8; }
+        .man-addr-row { display:flex; gap:6px; }
+        .man-addr-row input { flex:1; }
+        .man-addr-btn { flex:0 0 auto; height:42px; padding:0 14px; border:none; background:var(--blue); color:#fff; border-radius:9px; font:inherit; font-size:13.5px; font-weight:900; cursor:pointer; }
+        .man-post { height:420px; border:1.5px solid var(--border); border-radius:10px; overflow:hidden; position:relative; }
+        .man-save { height:46px; border:none; background:var(--primary); color:#fff; border-radius:11px; font:inherit; font-size:15px; font-weight:900; cursor:pointer; margin-top:2px; }
+    </style>
+    <div id="manual-modal" style="display:none; position:fixed; z-index:10052; left:0; top:0; width:100%; height:100%; background:rgba(15,23,42,0.55); align-items:center; justify-content:center; padding:14px; box-sizing:border-box;" onclick="if(event.target===this) closeManual()">
+        <div style="background:#fff; border-radius:16px; width:100%; max-width:400px; max-height:90vh; display:flex; flex-direction:column; overflow:hidden; box-shadow:0 20px 50px rgba(0,0,0,0.25);">
+            <div style="padding:13px 15px; border-bottom:1px solid #e2e8f0; display:flex; align-items:center; gap:8px;">
+                <button type="button" onclick="closeManual(); openSettings();" style="flex:0 0 auto; width:34px; height:34px; border:1.5px solid #e2e8f0; background:#fff; color:#475569; border-radius:9px; font-size:15px; font-weight:800; cursor:pointer;">‹</button>
+                <div style="flex:1; font-size:15px; font-weight:900; color:#0f172a;">✍️ 배달 추가</div>
+                <span onclick="closeManual()" style="flex:0 0 auto; font-size:24px; font-weight:800; color:#94a3b8; cursor:pointer; line-height:1;">&times;</span>
+            </div>
+            <form class="man-form" style="overflow-y:auto; padding:14px 15px 16px;" onsubmit="event.preventDefault();">
+                <!-- [신규] 손님 찾기 — 이름이나 번호 몇 자리로 찾아 누르면 아래 칸이 다 채워진다 -->
+                <div class="man-find">
+                    <input type="search" id="man-find" placeholder="🔎 손님 찾기 (이름·번호)" autocomplete="off" oninput="manualFind(this.value)">
+                    <div id="man-find-list" class="man-find-list"></div>
+                </div>
+                <div class="man-two">
+                    <label><span>날짜 <b>*</b></span><input type="date" id="man-date"></label>
+                    <label><span>전화 <b>*</b></span><input type="tel" id="man-phone" inputmode="numeric" placeholder="01012345678" oninput="manualPhoneLookup()"></label>
+                </div>
+                <div class="man-hint" id="man-hint"></div>
+                <label>이름<input type="text" id="man-name" placeholder="손님 이름"></label>
+                <label><span>주소 <b>*</b></span>
+                    <span class="man-addr-row">
+                        <input type="text" id="man-addr" list="man-apts" placeholder="검색을 눌러 고르기" oninput="manualRoad = ''">
+                        <button type="button" class="man-addr-btn" onclick="manualAddrSearch()">검색</button>
+                    </span>
+                </label>
+                <datalist id="man-apts"></datalist>
+                <div id="man-post" class="man-post" style="display:none;"></div>
+                <label>동·호<input type="text" id="man-detail" placeholder="예) 101동 1203호"></label>
+                <label>물건<input type="text" id="man-item" placeholder="수기 배달"></label>
+                <label>메모<input type="text" id="man-memo" placeholder="기사님께 남길 말"></label>
+                <!-- 폰 자판의 엔터로 잘못 저장되지 않게 단추로만 넣는다 -->
+                <button type="button" class="man-save" onclick="manualSave()">추가</button>
+            </form>
         </div>
     </div>
 
