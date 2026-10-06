@@ -3972,8 +3972,6 @@
             ['man-phone', 'man-name', 'man-addr', 'man-detail', 'man-memo'].forEach(id => { document.getElementById(id).value = ''; });
             document.getElementById('man-item').value = '';
             document.getElementById('man-date').value = gYmdOfView();
-            const dl = document.getElementById('man-apts');
-            dl.innerHTML = [...new Set(APT_TABLE.map(a => a.name))].map(n => `<option value="${gEsc(n)}"></option>`).join('');
             document.getElementById('man-hint').textContent = '';
             document.getElementById('man-find').value = '';
             document.getElementById('man-find-list').innerHTML = '';
@@ -4061,9 +4059,9 @@
                 document.head.appendChild(s);
             });
         }
-        async function manualAddrSearch() {
+        async function manualAddrSearch(openOnly) {
             const box = document.getElementById('man-post');
-            if (box.style.display !== 'none') { box.style.display = 'none'; box.innerHTML = ''; return; }
+            if (box.style.display !== 'none') { if (!openOnly) { box.style.display = 'none'; box.innerHTML = ''; } return; }
             try { await gLoadPostcode(); } catch (e) { showToast(e.message); return; }
             box.innerHTML = '';
             box.style.display = 'block';
@@ -4113,7 +4111,7 @@
             const ymd = v('man-date');
             if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) { showToast('날짜를 골라 주세요.'); return; }
             if (phone.length < 9) { showToast('전화번호를 적어 주세요.'); return; }
-            if (!v('man-addr')) { showToast('주소를 적어 주세요.'); return; }
+            if (!v('man-addr')) { showToast('주소를 검색해서 골라 주세요.'); return; }
             const me = window.gStaffMe || {};
             const key = 'm' + Date.now();
             // 같은 손님 주문이 있으면 공동현관 입력값도 이어 쓴다
@@ -4731,11 +4729,11 @@
                 <label>이름<input type="text" id="man-name" placeholder="손님 이름"></label>
                 <label><span>주소 <b>*</b></span>
                     <span class="man-addr-row">
-                        <input type="text" id="man-addr" list="man-apts" placeholder="검색을 눌러 고르기" oninput="manualRoad = ''">
+                        <!-- [수정] 손으로 적으면 오타로 아파트를 못 찾는다 — 검색(또는 손님 찾기)으로만 넣는다 -->
+                        <input type="text" id="man-addr" readonly placeholder="검색을 눌러 고르기" onclick="manualAddrSearch(true)" style="cursor:pointer; background:var(--bg-color);">
                         <button type="button" class="man-addr-btn" onclick="manualAddrSearch()">검색</button>
                     </span>
                 </label>
-                <datalist id="man-apts"></datalist>
                 <div id="man-post" class="man-post" style="display:none;"></div>
                 <label>동·호<input type="text" id="man-detail" placeholder="예) 101동 1203호"></label>
                 <label>물건<input type="text" id="man-item" placeholder="수기 배달"></label>
