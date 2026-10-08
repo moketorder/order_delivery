@@ -3672,6 +3672,20 @@
                 }
             });
 
+            /* [신규] 아직 갈 물건이 남은 카드에서는 이미 배달완료된 줄을 뺀다.
+               주문관리에서 먼저 배달완료로 바꾼 물건(예: 다른 날 미리 갖다준 것)이 같은 날짜로 묶여
+               남은 물건과 섞여 보이면, 기사가 그것까지 들고 가야 하는 줄 안다. (2026-10-08 밍쿠러브 감자옹심이)
+               다 끝난 카드는 그대로 둔다 — 완료 카드로 무엇을 갖다줬는지 보여야 하므로. */
+            Object.values(customerGroups).forEach(g => {
+                const isDone = o => o.status === '배달완료';
+                if (!g.orders.some(isDone) || g.orders.every(isDone)) return;
+                const keep = g.orders.map((o, i) => !isDone(o) ? i : -1).filter(i => i >= 0);
+                g.orders = keep.map(i => g.orders[i]);
+                g.itemsList = keep.map(i => g.itemsList[i]);
+                const ph = g.orders.find(o => o.deliveryPhotoExists || o.deliveryPhoto);
+                if (!ph) { g.deliveryPhotoExists = false; g.deliveryPhoto = ''; g.deliveryPhotoTime = null; }
+            });
+
             // 고객별 통합 배달 상태 결정
             const groupedCustomers = Object.values(customerGroups);
             groupedCustomers.forEach(group => {
