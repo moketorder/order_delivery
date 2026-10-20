@@ -4567,8 +4567,19 @@
             document.getElementById('cam-detail').textContent = info.detail;
             document.getElementById('cam-name').textContent = activeUploadCustomerName ? activeUploadCustomerName + ' 님' : '';
             document.getElementById('cam-full').textContent = info.full;
+            camStream = null;
+            // 예전에 플래시 되는 렌즈를 찾아 두었으면 그 렌즈로 먼저 연다
+            let torchDev = '';
+            try { torchDev = localStorage.getItem(CAM_TORCH_DEV_KEY) || ''; } catch (e) { }
+            if (torchDev) {
+                try {
+                    camStream = await navigator.mediaDevices.getUserMedia({
+                        video: { deviceId: { exact: torchDev }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false
+                    });
+                } catch (e) { camStream = null; try { localStorage.removeItem(CAM_TORCH_DEV_KEY); } catch (e2) { } }
+            }
             try {
-                camStream = await navigator.mediaDevices.getUserMedia({
+                if (!camStream) camStream = await navigator.mediaDevices.getUserMedia({
                     video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } },
                     audio: false
                 });
@@ -4596,16 +4607,64 @@
             document.getElementById('cam-modal').style.display = 'none';
             if (clearTarget) { activeUploadPhone = ""; activeUploadKeys = []; activeUploadCustomerName = ""; }
         }
+        /* [수정] 플래시가 안 켜지던 것 — 뒤 카메라가 여럿인 폰(삼성 등)은 플래시 없는 렌즈가 잡히는 일이 많다.
+           지금 렌즈에 플래시가 없으면 다른 뒤 카메라를 하나씩 열어 플래시 되는 렌즈로 바꾼다.
+           찾은 렌즈는 기억해 두고 다음부터 처음부터 그 렌즈로 연다. */
+        const CAM_TORCH_DEV_KEY = 'moket_cam_torch_device';
+        const gHasTorch = (track) => { try { return !!(track && track.getCapabilities && track.getCapabilities().torch); } catch (e) { return false; } };
+        async function gSetTorch(track, on) {
+            try { await track.applyConstraints({ advanced: [{ torch: on }] }); } catch (e) {
+                try { await track.applyConstraints({ torch: on }); } catch (e2) { return false; }
+            }
+            try { const st = track.getSettings ? track.getSettings() : {}; if ('torch' in st) return st.torch === on; } catch (e) { }
+            return true;
+        }
+        async function gFindTorchCamera() {
+            let devs = [];
+            try { devs = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput'); } catch (e) { return null; }
+            const curId = (() => { try { return camStream.getVideoTracks()[0].getSettings().deviceId; } catch (e) { return ''; } })();
+            // 앞 카메라는 뒤로 미룬다 (이름에 front·전면이 있는 것)
+            devs.sort((a, b) => (/front|전면|user/i.test(a.label) ? 1 : 0) - (/front|전면|user/i.test(b.label) ? 1 : 0));
+            for (const d of devs) {
+                if (!d.deviceId || d.deviceId === curId || /front|전면|user/i.test(d.label)) continue;
+                let s = null;
+                try {
+                    s = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: d.deviceId }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false });
+                } catch (e) { continue; }
+                const t = s.getVideoTracks()[0];
+                if (gHasTorch(t)) return s;
+                s.getTracks().forEach(x => x.stop());
+            }
+            return null;
+        }
         async function toggleCamTorch() {
             if (!camStream) return;
             const want = !camTorchOn;
-            const track = camStream.getVideoTracks()[0];
+            const tb = document.getElementById('cam-torch');
+            let track = camStream.getVideoTracks()[0];
             let ok = false;
-            try {
-                await track.applyConstraints({ advanced: [{ torch: want }] });
-                const st = track.getSettings ? track.getSettings() : {};
-                ok = ('torch' in st) ? st.torch === want : true;
-            } catch (e) { ok = false; }
+            if (!want) { ok = await gSetTorch(track, false); camTorchOn = false; tb.textContent = '🔦 플래시'; return; }
+            if (!gHasTorch(track)) {
+                // 지금 렌즈엔 플래시가 없다 → 플래시 있는 뒤 카메라를 찾는다
+                tb.textContent = '🔦 찾는 중...';
+                camStream.getTracks().forEach(x => x.stop());   // 폰은 카메라 하나만 열리는 경우가 많아 먼저 닫는다
+                const s = await gFindTorchCamera();
+                if (s) {
+                    camStream = s;
+                    track = s.getVideoTracks()[0];
+                    try { localStorage.setItem(CAM_TORCH_DEV_KEY, track.getSettings().deviceId || ''); } catch (e) { }
+                } else {
+                    // 못 찾았으면 원래 카메라로 다시 연다
+                    try {
+                        camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false });
+                        track = camStream.getVideoTracks()[0];
+                    } catch (e) { closeInAppCamera(false); showToast('카메라를 다시 열지 못했습니다.'); return; }
+                }
+                const v = document.getElementById('cam-video');
+                v.srcObject = camStream;
+                try { await v.play(); } catch (e) { }
+            }
+            if (gHasTorch(track)) ok = await gSetTorch(track, true);
             if (!ok) {
                 camTorchOn = false;
                 document.getElementById('cam-torch').textContent = '🔦 플래시';
