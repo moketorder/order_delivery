@@ -1006,7 +1006,7 @@
     <!-- [신규] 앱 안 카메라 — 위에 아파트·동호수를 띄운다 (사진에는 안 찍힌다) -->
     <div id="cam-modal" style="display:none; position:fixed; inset:0; z-index:10100; background:#000; flex-direction:column;">
         <div style="position:relative; flex:1; overflow:hidden;">
-            <video id="cam-video" playsinline autoplay muted style="width:100%; height:100%; object-fit:cover; display:block;"></video>
+            <video id="cam-video" playsinline autoplay muted style="width:100%; height:100%; object-fit:contain; display:block;"></video>
             <div style="position:absolute; left:0; right:0; top:0; padding:calc(env(safe-area-inset-top) + 12px) 64px 14px 16px; background:linear-gradient(rgba(0,0,0,0.75), rgba(0,0,0,0)); color:#fff; text-shadow:0 1px 3px rgba(0,0,0,0.8); pointer-events:none;">
                 <div id="cam-apt" style="font-size:24px; font-weight:900; line-height:1.25;"></div>
                 <div id="cam-detail" style="font-size:30px; font-weight:900; line-height:1.25; color:#fde047;"></div>
@@ -4551,6 +4551,17 @@
            글자는 화면에만 뜨고 사진에는 안 들어간다. 올라가는 사진은 원래 카메라와 같은 크기(가로 600)로 줄인다.
            카메라를 못 열면(허락 안 함·안 되는 폰) 원래 카메라로 넘어간다. */
         let camStream = null, camTorchOn = false;
+        /* [수정] 찍히는 범위가 원래 카메라보다 좁았다 — 와이드(16:9)로 열면 센서 위아래를 잘라 쓴다.
+           원래 카메라 사진처럼 4:3으로 연다. 화면도 자르지 않고(contain) 찍히는 그대로 보여 준다. */
+        const CAM_SIZE = { width: { ideal: 1600 }, height: { ideal: 1200 }, aspectRatio: { ideal: 4 / 3 } };
+        // 폰이 확대된 채로 열면 가장 넓게(줌 최소) 맞춘다
+        async function gCamWidest(stream) {
+            try {
+                const t = stream.getVideoTracks()[0];
+                const cap = t.getCapabilities ? t.getCapabilities() : {};
+                if (cap.zoom && typeof cap.zoom.min === 'number') await t.applyConstraints({ advanced: [{ zoom: cap.zoom.min }] });
+            } catch (e) { }
+        }
         function gCamInfoOf(keys) {
             const it = (rawOrders || []).find(o => (keys || []).includes(o.orderKey)) || {};
             const apt = (findCustomZoneName(it.address) || extractApartmentName(it.address || '') || '').trim();
@@ -4575,13 +4586,13 @@
             if (torchDev) {
                 try {
                     camStream = await navigator.mediaDevices.getUserMedia({
-                        video: { deviceId: { exact: torchDev }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false
+                        video: { deviceId: { exact: torchDev }, ...CAM_SIZE }, audio: false
                     });
                 } catch (e) { camStream = null; try { localStorage.removeItem(CAM_TORCH_DEV_KEY); } catch (e2) { } }
             }
             try {
                 if (!camStream) camStream = await navigator.mediaDevices.getUserMedia({
-                    video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+                    video: { facingMode: { ideal: 'environment' }, ...CAM_SIZE },
                     audio: false
                 });
             } catch (e) {
@@ -4590,6 +4601,7 @@
                 useNativeCamera();
                 return;
             }
+            await gCamWidest(camStream);
             const v = document.getElementById('cam-video');
             v.srcObject = camStream;
             try { await v.play(); } catch (e) { }
@@ -4611,7 +4623,9 @@
         /* [수정] 플래시가 안 켜지던 것 — 뒤 카메라가 여럿인 폰(삼성 등)은 플래시 없는 렌즈가 잡히는 일이 많다.
            지금 렌즈에 플래시가 없으면 다른 뒤 카메라를 하나씩 열어 플래시 되는 렌즈로 바꾼다.
            찾은 렌즈는 기억해 두고 다음부터 처음부터 그 렌즈로 연다. */
-        const CAM_TORCH_DEV_KEY = 'moket_cam_torch_device';
+        // [수정] 이름을 바꿔 예전에 기억한 렌즈를 버린다 — 망원 등 좁은 렌즈가 기억됐을 수 있다
+        const CAM_TORCH_DEV_KEY = 'moket_cam_torch_device2';
+        try { localStorage.removeItem('moket_cam_torch_device'); } catch (e) { }
         const gHasTorch = (track) => { try { return !!(track && track.getCapabilities && track.getCapabilities().torch); } catch (e) { return false; } };
         async function gSetTorch(track, on) {
             try { await track.applyConstraints({ advanced: [{ torch: on }] }); } catch (e) {
@@ -4624,13 +4638,14 @@
             let devs = [];
             try { devs = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput'); } catch (e) { return null; }
             const curId = (() => { try { return camStream.getVideoTracks()[0].getSettings().deviceId; } catch (e) { return ''; } })();
-            // 앞 카메라는 뒤로 미룬다 (이름에 front·전면이 있는 것)
-            devs.sort((a, b) => (/front|전면|user/i.test(a.label) ? 1 : 0) - (/front|전면|user/i.test(b.label) ? 1 : 0));
+            // 앞 카메라는 뒤로 미루고(이름에 front·전면이 있는 것), 뒤 카메라끼리는 번호가 작은 것부터 (안드로이드는 'camera2 0'이 보통 기본 렌즈, 뒤 번호는 광각·망원)
+            const camNo = d => { const m = String(d.label || '').match(/camera2?\s*(\d+)/i); return m ? parseInt(m[1], 10) : 99; };
+            devs.sort((a, b) => ((/front|전면|user/i.test(a.label) ? 1000 : 0) + camNo(a)) - ((/front|전면|user/i.test(b.label) ? 1000 : 0) + camNo(b)));
             for (const d of devs) {
                 if (!d.deviceId || d.deviceId === curId || /front|전면|user/i.test(d.label)) continue;
                 let s = null;
                 try {
-                    s = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: d.deviceId }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false });
+                    s = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: d.deviceId }, ...CAM_SIZE }, audio: false });
                 } catch (e) { continue; }
                 const t = s.getVideoTracks()[0];
                 if (gHasTorch(t)) return s;
@@ -4657,10 +4672,11 @@
                 } else {
                     // 못 찾았으면 원래 카메라로 다시 연다
                     try {
-                        camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false });
+                        camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, ...CAM_SIZE }, audio: false });
                         track = camStream.getVideoTracks()[0];
                     } catch (e) { closeInAppCamera(false); showToast('카메라를 다시 열지 못했습니다.'); return; }
                 }
+                await gCamWidest(camStream);
                 const v = document.getElementById('cam-video');
                 v.srcObject = camStream;
                 try { await v.play(); } catch (e) { }
