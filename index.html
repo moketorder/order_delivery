@@ -4554,12 +4554,15 @@
         /* [수정] 찍히는 범위가 원래 카메라보다 좁았다 — 와이드(16:9)로 열면 센서 위아래를 잘라 쓴다.
            원래 카메라 사진처럼 4:3으로 연다. 화면도 자르지 않고(contain) 찍히는 그대로 보여 준다. */
         const CAM_SIZE = { width: { ideal: 1600 }, height: { ideal: 1200 }, aspectRatio: { ideal: 4 / 3 } };
-        // 폰이 확대된 채로 열면 가장 넓게(줌 최소) 맞춘다
+        // 원래 카메라처럼 1배로 맞춘다.
+        // [수정] 줌 최소로 했더니 갤럭시 등은 최소가 0.5배(초광각)라 너무 넓게 찍혔다. 1배가 되는 폰은 1배, 안 되면 최소.
         async function gCamWidest(stream) {
             try {
                 const t = stream.getVideoTracks()[0];
                 const cap = t.getCapabilities ? t.getCapabilities() : {};
-                if (cap.zoom && typeof cap.zoom.min === 'number') await t.applyConstraints({ advanced: [{ zoom: cap.zoom.min }] });
+                if (!cap.zoom || typeof cap.zoom.min !== 'number') return;
+                const z = (cap.zoom.min <= 1 && cap.zoom.max >= 1) ? 1 : cap.zoom.min;
+                await t.applyConstraints({ advanced: [{ zoom: z }] });
             } catch (e) { }
         }
         function gCamInfoOf(keys) {
