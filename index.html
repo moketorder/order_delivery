@@ -1018,7 +1018,7 @@
         </div>
         <div style="flex:0 0 auto; display:flex; align-items:center; justify-content:space-between; gap:10px; padding:16px 16px calc(env(safe-area-inset-bottom) + 16px); background:#000;">
             <button type="button" onclick="closeInAppCamera(true)" style="flex:1; padding:12px 0; border:none; border-radius:12px; background:#334155; color:#fff; font-size:15px; font-weight:800;">취소</button>
-            <button type="button" onclick="shootInAppCamera()" aria-label="찍기" style="flex:0 0 auto; width:74px; height:74px; border-radius:50%; border:5px solid #fff; background:#10b981;"></button>
+            <button id="cam-shot" type="button" onclick="shootInAppCamera()" aria-label="찍기" style="flex:0 0 auto; width:74px; height:74px; border-radius:50%; border:5px solid #fff; background:#10b981;"></button>
             <button id="cam-torch" type="button" onclick="toggleCamTorch()" style="flex:1; padding:12px 0; border:none; border-radius:12px; background:#334155; color:#fff; font-size:14px; font-weight:800; line-height:1.3;">🔦 플래시</button>
         </div>
     </div>
@@ -4679,9 +4679,33 @@
             closeInAppCamera(false);
             document.getElementById('camera-input').click();
         }
+        /* [수정] 사진 모드 — 동영상 한 장면을 떼어 오면 보정이 없어 흐렸다.
+           되는 폰(안드로이드 크롬)은 카메라에게 진짜 사진을 찍게 한다(ImageCapture.takePhoto). 초점·노출을 맞춘 큰 사진이 온다.
+           안 되는 폰(아이폰 등)이나 실패하면 예전처럼 화면 장면을 떼어 온다. 올리는 크기는 둘 다 가로 500으로 같다. */
+        let camShooting = false;
         async function shootInAppCamera() {
             const v = document.getElementById('cam-video');
             if (!camStream || !v.videoWidth) { showToast('카메라가 아직 준비되지 않았습니다.'); return; }
+            if (camShooting) return;   // 두 번 눌림 막기
+            const track = camStream.getVideoTracks()[0];
+            if (typeof ImageCapture !== 'undefined' && track && track.readyState === 'live') {
+                camShooting = true;
+                const shot = document.getElementById('cam-shot');   // 찍는 동안 찍기 단추를 흐리게 (로딩 창은 카메라 뒤에 가려진다)
+                if (shot) shot.style.opacity = '0.4';
+                try {
+                    const blob = await new ImageCapture(track).takePhoto();
+                    const dataUrl = await resizeAndCompressImage(blob);
+                    // 사진을 찍고 나면 플래시가 꺼지는 폰이 있어 다시 켠다
+                    if (camTorchOn && camStream) { try { await gSetTorch(camStream.getVideoTracks()[0], true); } catch (e) { } }
+                    showPhotoCheck(dataUrl, 'inapp', activeUploadPhone, (activeUploadKeys || []).slice(), activeUploadCustomerName);
+                    return;
+                } catch (e) {
+                    console.warn('사진 모드 실패 — 화면 장면으로 찍음:', e);
+                } finally {
+                    camShooting = false;
+                    if (shot) shot.style.opacity = '';
+                }
+            }
             let w = v.videoWidth, h = v.videoHeight;
             const max_width = 500;   // resizeAndCompressImage 와 같은 크기
             if (w > max_width) { h = Math.round((h * max_width) / w); w = max_width; }
