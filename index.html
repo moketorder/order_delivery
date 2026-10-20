@@ -1007,18 +1007,19 @@
     <div id="cam-modal" style="display:none; position:fixed; inset:0; z-index:10100; background:#000; flex-direction:column;">
         <div style="position:relative; flex:1; overflow:hidden;">
             <video id="cam-video" playsinline autoplay muted style="width:100%; height:100%; object-fit:cover; display:block;"></video>
-            <div style="position:absolute; left:0; right:0; top:0; padding:calc(env(safe-area-inset-top) + 12px) 16px 14px; background:linear-gradient(rgba(0,0,0,0.75), rgba(0,0,0,0)); color:#fff; text-shadow:0 1px 3px rgba(0,0,0,0.8); pointer-events:none;">
+            <div style="position:absolute; left:0; right:0; top:0; padding:calc(env(safe-area-inset-top) + 12px) 64px 14px 16px; background:linear-gradient(rgba(0,0,0,0.75), rgba(0,0,0,0)); color:#fff; text-shadow:0 1px 3px rgba(0,0,0,0.8); pointer-events:none;">
                 <div id="cam-apt" style="font-size:24px; font-weight:900; line-height:1.25;"></div>
                 <div id="cam-detail" style="font-size:30px; font-weight:900; line-height:1.25; color:#fde047;"></div>
                 <div id="cam-name" style="font-size:16px; font-weight:800; margin-top:2px;"></div>
                 <div id="cam-full" style="font-size:12px; font-weight:600; opacity:0.85; margin-top:4px; word-break:keep-all;"></div>
             </div>
-            <button id="cam-torch" type="button" onclick="toggleCamTorch()" style="display:none; position:absolute; right:14px; bottom:14px; padding:9px 13px; border-radius:20px; border:none; background:rgba(0,0,0,0.55); color:#fff; font-size:14px; font-weight:800;">🔦 플래시</button>
+            <!-- [수정] 원래 카메라로 — 오른쪽 위 작은 동그라미 (사장님 요청) -->
+            <button type="button" onclick="useNativeCamera()" aria-label="원래 카메라로" title="원래 카메라로" style="position:absolute; right:12px; top:calc(env(safe-area-inset-top) + 12px); width:42px; height:42px; border-radius:50%; border:2px solid rgba(255,255,255,0.85); background:rgba(0,0,0,0.5); color:#fff; font-size:19px; line-height:1; padding:0; display:flex; align-items:center; justify-content:center;">📷</button>
         </div>
         <div style="flex:0 0 auto; display:flex; align-items:center; justify-content:space-between; gap:10px; padding:16px 16px calc(env(safe-area-inset-bottom) + 16px); background:#000;">
             <button type="button" onclick="closeInAppCamera(true)" style="flex:1; padding:12px 0; border:none; border-radius:12px; background:#334155; color:#fff; font-size:15px; font-weight:800;">취소</button>
             <button type="button" onclick="shootInAppCamera()" aria-label="찍기" style="flex:0 0 auto; width:74px; height:74px; border-radius:50%; border:5px solid #fff; background:#10b981;"></button>
-            <button type="button" onclick="useNativeCamera()" style="flex:1; padding:12px 0; border:none; border-radius:12px; background:#334155; color:#fff; font-size:13px; font-weight:800; line-height:1.3;">원래 카메라로</button>
+            <button id="cam-torch" type="button" onclick="toggleCamTorch()" style="flex:1; padding:12px 0; border:none; border-radius:12px; background:#334155; color:#fff; font-size:14px; font-weight:800; line-height:1.3;">🔦 플래시</button>
         </div>
     </div>
 
