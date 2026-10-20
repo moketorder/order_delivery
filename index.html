@@ -1176,7 +1176,7 @@
                         canvas.height = height;
                         const ctx = canvas.getContext('2d');
                         ctx.drawImage(img, 0, 0, width, height);
-                        const dataUrl = canvas.toDataURL('image/jpeg', 0.5);
+                        const dataUrl = canvas.toDataURL('image/jpeg', 0.6);   // [수정 2026-10-20] 화질 50% → 60% (사장님 요청)
                         resolve(dataUrl);
                     };
                     img.onerror = reject;
@@ -4688,7 +4688,7 @@
             const canvas = document.createElement('canvas');
             canvas.width = w; canvas.height = h;
             canvas.getContext('2d').drawImage(v, 0, 0, w, h);
-            const dataUrl = canvas.toDataURL('image/jpeg', 0.5);
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.6);
             // 바로 올리지 않고 찍은 사진을 먼저 보여 준다. 카메라는 뒤에 켜 둔 채라 '다시 찍기'가 빠르다.
             showPhotoCheck(dataUrl, 'inapp', activeUploadPhone, (activeUploadKeys || []).slice(), activeUploadCustomerName);
         }
