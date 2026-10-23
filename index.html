@@ -366,20 +366,37 @@
         }
 
         /* [신규 2026-10-23] 공동현관 비번 칸 — 동호수 칸 바로 아래, 같은 크기 글자 */
+        /* [수정] '공동현관 : 비번' 대신 동별 비번 칸처럼 세로줄로 나눈다 (사장님 요청) */
         .rider-card-pwd {
-            padding: 11px 16px;
+            display: flex;
+            align-items: stretch;
+            padding: 9px 16px;
             border-bottom: 1px solid #e2e8f0;
             background: #eff6ff;
             color: #1d4ed8;
             font-size: 17px;
-            font-weight: 800;
-            word-break: break-all;
+            line-height: 1.5;
         }
 
-        .rider-card-pwd b {
+        .rider-card-pwd .pl {
+            flex: 0 0 auto;
+            display: flex;
+            align-items: center;
+            font-weight: 800;
+            white-space: nowrap;
+            padding-right: 14px;
+            border-right: 1px solid #bfdbfe;
+        }
+
+        .rider-card-pwd .pv {
+            flex: 1;
+            min-width: 0;
+            display: flex;
+            align-items: center;
+            padding-left: 14px;
             font-weight: 900;
-            margin-left: 4px;
             letter-spacing: 0.5px;
+            word-break: break-all;
         }
 
         .unit-number {
@@ -3949,7 +3966,7 @@
                     </div>
                     ${customer.entrance ? `
                     <!-- [수정 2026-10-23] 공동현관 비번이 작아 잘 안 보였다 — 맨 위 동호수 바로 아래 칸으로 옮기고 동호수만큼 크게 (사장님 요청) -->
-                    <div class="rider-card-pwd">공동현관 : <b>${customer.entrance}</b></div>
+                    <div class="rider-card-pwd"><span class="pl">공동현관</span><span class="pv">${customer.entrance}</span></div>
                     ` : ''}
                     <div class="rider-card-body">
                         <!-- [수정] '📋 복사' 단추가 자리를 많이 먹어 뗐다. 이제 주소줄을 누르면 도로명주소가 복사된다.
