@@ -365,6 +365,23 @@
             background: #e2e8f0;
         }
 
+        /* [신규 2026-10-23] 공동현관 비번 칸 — 동호수 칸 바로 아래, 같은 크기 글자 */
+        .rider-card-pwd {
+            padding: 11px 16px;
+            border-bottom: 1px solid #e2e8f0;
+            background: #eff6ff;
+            color: #1d4ed8;
+            font-size: 17px;
+            font-weight: 800;
+            word-break: break-all;
+        }
+
+        .rider-card-pwd b {
+            font-weight: 900;
+            margin-left: 4px;
+            letter-spacing: 0.5px;
+        }
+
         .unit-number {
             font-size: 17px;
             font-weight: 900;
@@ -3930,6 +3947,10 @@
                         <span class="unit-number">${fullDongHo}</span>
                         <span class="customer-name">${customer.name}</span>
                     </div>
+                    ${customer.entrance ? `
+                    <!-- [수정 2026-10-23] 공동현관 비번이 작아 잘 안 보였다 — 맨 위 동호수 바로 아래 칸으로 옮기고 동호수만큼 크게 (사장님 요청) -->
+                    <div class="rider-card-pwd">🚪 비번 <b>${customer.entrance}</b></div>
+                    ` : ''}
                     <div class="rider-card-body">
                         <!-- [수정] '📋 복사' 단추가 자리를 많이 먹어 뗐다. 이제 주소줄을 누르면 도로명주소가 복사된다.
                              (동·호수와 괄호는 빼고 내비에 찍는 도로명주소만) -->
@@ -3938,11 +3959,6 @@
                             <span class="addr-full">${representativeItem.address || ""} ${representativeItem.addressDetail || ""}</span>
                             ${String(representativeItem.address || "").trim() ? `<span class="ab-tip">📋</span>` : ''}
                         </div>
-                        ${customer.entrance ? `
-                            <div class="address-box" style="background:#eff6ff; border:1px solid #bfdbfe; color:#1d4ed8;">
-                                🚪 공동현관 입력값: <b>${customer.entrance}</b>
-                            </div>
-                        ` : ''}
                         ${(() => {
                             /* [신규] 가게 메모와 손님 요청사항을 한자리에 모아 보여 준다.
                                문 앞에서 한 번에 눈에 들어와야 하므로 상자 하나에 줄로 쌓는다.
