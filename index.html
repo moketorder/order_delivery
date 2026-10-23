@@ -372,10 +372,15 @@
             align-items: stretch;
             padding: 9px 16px;
             border-bottom: 1px solid #e2e8f0;
-            background: #eff6ff;
-            color: #1d4ed8;
+            /* [수정] 파란 칸이 카드에서 혼자 튀었다 — 동호수 칸과 같은 바탕·글자색으로 맞춘다 (사장님 요청) */
+            background: #fafbfd;
+            color: var(--text-main);
             font-size: 17px;
             line-height: 1.5;
+        }
+
+        .rider-card.completed .rider-card-pwd {
+            background: #e2e8f0;
         }
 
         .rider-card-pwd .pl {
@@ -383,9 +388,10 @@
             display: flex;
             align-items: center;
             font-weight: 800;
+            color: var(--text-sub);
             white-space: nowrap;
             padding-right: 14px;
-            border-right: 1px solid #bfdbfe;
+            border-right: 1px solid #cbd5e1;
         }
 
         .rider-card-pwd .pv {
