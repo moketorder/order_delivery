@@ -354,7 +354,7 @@
 
         .rider-card-header {
             padding: 14px 16px;
-            border-bottom: 1px solid #dbe3ee;
+            border-bottom: 1px solid #b8c4d4;   /* [수정 2026-10-23] 제목 덩어리 아래 선은 조금 진하게 */
             display: flex;
             justify-content: space-between;
             align-items: center;
@@ -371,7 +371,7 @@
             display: flex;
             align-items: stretch;
             padding: 5px 16px;   /* [수정] 세로줄은 위아래가 조금 빠지게 — 바깥 5px은 비우고 안쪽 칸에 4px (사장님 요청) */
-            border-bottom: 1px solid #e2e8f0;
+            border-bottom: 1px solid #b8c4d4;   /* 제목 덩어리(동호수+비번) 아래 선 — 조금 진하게 */
             /* [수정] 바탕은 동호수 칸과 같은 연한 파랑 회색, 글씨는 파랑 그대로 (사장님 요청) */
             background: #eef2f7;
             color: #1d4ed8;
@@ -385,7 +385,7 @@
 
         /* [수정 2026-10-23] 동호수 칸과 비번 칸 사이 가로선은 양 끝까지 꽉 차게, 세로선은 그 가로선에 붙어 T자가 되게 (사장님 요청) */
         .rider-card-header.has-pwd {
-            border-bottom: 1px solid #c7d2e0;
+            border-bottom: 1px solid #dde4ed;   /* 동호수와 비번 사이 — 아주 연하게 (한 칸 안의 줄처럼) */
         }
 
         .rider-card-pwd .pl {
@@ -396,7 +396,7 @@
             color: #1d4ed8;
             white-space: nowrap;
             padding: 4px 14px 4px 0;
-            border-right: 1px solid #c7d2e0;
+            border-right: 1px solid #d3dbe6;   /* 세로선도 연하게 */
         }
 
         .rider-card-pwd .pv {
