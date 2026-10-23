@@ -383,6 +383,24 @@
             background: #e2e8f0;
         }
 
+        /* [수정 2026-10-23] 동호수 칸과 비번 칸을 한 제목처럼 — 사이 실선을 빼고 주문내역처럼 안쪽 점선으로 (사장님 요청) */
+        .rider-card-header.has-pwd {
+            border-bottom: none;
+        }
+
+        .rider-card-pwd {
+            position: relative;
+        }
+
+        .rider-card-pwd::before {
+            content: '';
+            position: absolute;
+            left: 16px;
+            right: 16px;
+            top: 0;
+            border-top: 1px dashed #cbd5e1;
+        }
+
         .rider-card-pwd .pl {
             flex: 0 0 auto;
             display: flex;
@@ -3966,7 +3984,7 @@
                 }, 0);
 
                 card.innerHTML = `
-                    <div class="rider-card-header">
+                    <div class="rider-card-header${customer.entrance ? ' has-pwd' : ''}">
                         <span class="unit-number">${fullDongHo}</span>
                         <span class="customer-name">${customer.name}</span>
                     </div>
