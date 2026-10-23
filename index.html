@@ -416,35 +416,6 @@
             color: var(--text-main);
         }
 
-        /* [신규 2026-10-23] 아파트 │ 동호수 — 비번 칸(공동현관 │ 비번)과 같은 모양 */
-        .unit-split {
-            display: flex;
-            align-items: stretch;
-            min-width: 0;
-        }
-
-        .unit-split .ul {
-            flex: 0 0 auto;
-            box-sizing: border-box;
-            display: flex;
-            align-items: center;
-            white-space: nowrap;
-            padding-right: 14px;
-            border-right: 1px solid #c7d2e0;
-        }
-
-        .unit-split .uv {
-            min-width: 0;
-            display: flex;
-            align-items: center;
-            padding-left: 14px;
-            word-break: keep-all;   /* '1203호'가 중간에서 끊기지 않게 — 줄은 띄어쓰기에서만 바뀐다 */
-        }
-
-        /* 아파트 이름이 길어도 손님 이름과 붙지 않게 띄운다 */
-        .rider-card-header { gap: 10px; }
-        .rider-card-header .customer-name { flex: 0 0 auto; white-space: nowrap; }
-
         .customer-name {
             font-size: 14px;
             font-weight: 800;
@@ -4001,10 +3972,7 @@
 
                 card.innerHTML = `
                     <div class="rider-card-header${customer.entrance ? ' has-pwd' : ''}">
-                        ${(aptName && aptName !== '기타')
-                            /* [수정 2026-10-23] '[아파트] 동호수' 대괄호를 빼고 비번 칸처럼 '아파트 │ 동호수'로 나눈다 (사장님 요청) */
-                            ? `<span class="unit-number unit-split"><span class="ul">${aptName}</span><span class="uv">${dongLabel}${hoLabel}</span></span>`
-                            : `<span class="unit-number">${fullDongHo}</span>`}
+                        <span class="unit-number">${fullDongHo}</span>
                         <span class="customer-name">${customer.name}</span>
                     </div>
                     ${customer.entrance ? `
@@ -4095,14 +4063,6 @@
                     </div>
                 `;
                 listContainer.appendChild(card);
-                // 아파트 이름 칸과 '공동현관' 칸의 너비를 맞춰 두 세로줄이 한 줄로 서게 한다
-                try {
-                    const ul = card.querySelector('.unit-split .ul'), pl = card.querySelector('.rider-card-pwd .pl');
-                    if (ul && pl) {
-                        const w = Math.ceil(Math.max(ul.getBoundingClientRect().width, pl.getBoundingClientRect().width));
-                        if (w > 0) { ul.style.minWidth = w + 'px'; pl.style.minWidth = w + 'px'; }
-                    }
-                } catch (e) { }
             });
         }
 
