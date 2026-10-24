@@ -373,7 +373,9 @@
         }
 
         .rider-card-header {
-            padding: 14px 16px;
+            padding: 5px 16px;   /* [수정 2026-10-24] 제목칸이 두꺼워 보여서 공동현관 줄과 같은 높이(44px)로 (사장님 요청) */
+            min-height: 44px;
+            box-sizing: border-box;
             border-bottom: 1px solid #b4c6de;   /* 제목 덩어리 아래 선은 조금 진하게 */
             display: flex;
             justify-content: space-between;
