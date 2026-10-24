@@ -3379,6 +3379,27 @@
             body.innerHTML = `${head}<div class="dlog-chips">${chips}</div><div class="dlog-list">${rows}</div>${dlogAddHtml()}`;
         }
 
+        /* [수정 2026-10-24] 로그아웃 — 브라우저 확인창(confirm)은 앱 안 브라우저에서 막혀 반응이 없었다.
+           화면 안에 직접 그린 확인창을 띄운다 (사장님 요청). */
+        function gAskBox(msg, okText) {
+            return new Promise(resolve => {
+                const back = document.createElement('div');
+                back.style.cssText = 'position:fixed; inset:0; z-index:2147483100; background:rgba(15,23,42,.5); display:flex; align-items:center; justify-content:center; padding:20px; box-sizing:border-box;';
+                back.innerHTML = `<div style="background:#fff; border-radius:16px; width:100%; max-width:320px; padding:20px 18px 16px; box-shadow:0 20px 50px rgba(0,0,0,.25);">
+                    <div style="font-size:16px; font-weight:900; color:#0f172a; text-align:center; margin-bottom:16px;">${gEsc(msg)}</div>
+                    <div style="display:flex; gap:8px;">
+                        <button type="button" data-v="0" style="flex:1; height:46px; border:1px solid #cbd5e1; background:#fff; border-radius:12px; font:inherit; font-size:14px; font-weight:800; color:#475569; cursor:pointer;">취소</button>
+                        <button type="button" data-v="1" style="flex:1; height:46px; border:none; background:#dc2626; color:#fff; border-radius:12px; font:inherit; font-size:14px; font-weight:900; cursor:pointer;">${gEsc(okText || '확인')}</button>
+                    </div></div>`;
+                const done = v => { back.remove(); resolve(v); };
+                back.onclick = e => { if (e.target === back) done(false); };
+                back.querySelectorAll('button').forEach(b => b.onclick = () => done(b.dataset.v === '1'));
+                document.body.appendChild(back);
+            });
+        }
+        async function settingsSignOut() {
+            if (await gAskBox('로그아웃할까요?', '로그아웃')) gStaffSignOut(true);
+        }
         function closeSettings() { document.getElementById('settings-modal').style.display = 'none'; }
         function settingsOpenPwd() { closeSettings(); openPasswordFinder(true); }
 
@@ -5408,7 +5429,7 @@
                 <!-- [신규] 정산 — 가게는 전체 기사, 배달기사는 본인 것만 -->
                 <button type="button" id="btn-open-pay" onclick="openPay()" class="set-row"><span>정산</span><i>›</i></button>
                 <!-- [신규] 가게 로그인 — 누가 로그인했는지 보이고 로그아웃한다 (배달기사도 보인다) -->
-                <button type="button" onclick="gStaffSignOut()" class="set-out"><span id="staff-me-label">로그인 정보</span><b>로그아웃</b></button>
+                <button type="button" onclick="settingsSignOut()" class="set-out"><span id="staff-me-label">로그인 정보</span><b>로그아웃</b></button>
             </div>
         </div>
     </div>
