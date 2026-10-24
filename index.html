@@ -159,6 +159,22 @@
             color: #ffffff;
         }
 
+        /* [신규 2026-10-24] 날짜 단추 + 휠 */
+        .date-pick-btn { flex:1; min-width:0; height:42px; padding:0 12px 0 14px; border:1px solid #cbd5e1; border-radius:var(--radius-sub); background:#fff; color:var(--text-main); font:inherit; font-size:15px; font-weight:900; display:flex; align-items:center; justify-content:space-between; gap:8px; cursor:pointer; }
+        .date-pick-btn svg { flex:0 0 auto; color:#64748b; }
+        .date-today-btn { flex:0 0 auto; height:42px; padding:0 14px; border:1px solid #cbd5e1; border-radius:var(--radius-sub); background:#fff; color:#475569; font:inherit; font-size:13.5px; font-weight:800; cursor:pointer; }
+        .date-today-btn.on { background:var(--text-main); border-color:var(--text-main); color:#fff; }   /* 오늘을 보고 있을 때 */
+        .dw-back { position:fixed; inset:0; z-index:10060; background:rgba(15,23,42,.45); display:flex; align-items:flex-end; justify-content:center; }
+        .dw-sheet { width:100%; max-width:480px; background:#fff; border-radius:18px 18px 0 0; padding:14px 16px calc(14px + env(safe-area-inset-bottom)); box-sizing:border-box; }
+        .dw-cols { position:relative; display:flex; gap:8px; margin:6px 0 12px; }
+        .dw-cols::before { content:''; position:absolute; left:0; right:0; top:80px; height:40px; border-radius:10px; background:#f1f5f9; pointer-events:none; }
+        .dw-col { position:relative; flex:1; height:200px; overflow-y:auto; scroll-snap-type:y mandatory; scrollbar-width:none; -webkit-overflow-scrolling:touch; padding:80px 0; box-sizing:border-box;
+                  -webkit-mask-image:linear-gradient(to bottom, transparent, #000 30%, #000 70%, transparent); mask-image:linear-gradient(to bottom, transparent, #000 30%, #000 70%, transparent); }
+        .dw-col::-webkit-scrollbar { display:none; }
+        .dw-item { height:40px; line-height:40px; text-align:center; scroll-snap-align:center; font-size:16px; font-weight:700; color:#94a3b8; cursor:pointer; white-space:nowrap; }
+        .dw-item.sel { color:var(--text-main); font-weight:900; font-size:17px; }
+        .dw-item.today::after { content:' 오늘'; font-size:11px; font-weight:800; color:#f59e0b; }
+
         /* 검색창 */
         .search-card {   /* [수정 2026-10-24] 검색칸을 감싼 흰 상자를 뺌 — 다른 메뉴처럼 칸만 보이게 */
             margin-bottom: 10px;
@@ -1034,8 +1050,16 @@
     </div>
 
     <div class="container">
-        <!-- 월 선택 + 날짜 (한 줄) -->
+        <!-- [신규 2026-10-24] 날짜는 단추 하나 — 누르면 월 | 일 휠이 올라온다 (사장님 요청) -->
         <div style="display:flex; gap:8px; align-items:center; margin-bottom:8px;">
+            <button type="button" id="date-pick-btn" class="date-pick-btn" onclick="openDateWheel()">
+                <span id="date-pick-label">날짜</span>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
+            <button type="button" id="date-today-btn" class="date-today-btn" onclick="gPickDate(null, null, true)">오늘</button>
+        </div>
+        <!-- 원래 월 선택 + 날짜 줄 — 안에서 그대로 쓰고 화면에는 숨긴다 -->
+        <div style="display:none;">
             <select id="month-select" class="select-dropdown" onchange="handleMonthChange(this.value)" style="flex:0 0 auto; width:128px; padding:0 6px 0 10px;">
                 <!-- 동적 로드 -->
             </select>
@@ -2086,11 +2110,119 @@
                 dateContainer.appendChild(btn);
             });
 
+            gUpdateDatePickLabel();   // [신규 2026-10-24] 날짜 단추 글자
             // [신규 2026-10-24] 처음 열 때도 고른 날짜가 가운데에 오게
             const _activeDay = dateContainer.querySelector('.date-tab-btn.active');
             if (_activeDay) requestAnimationFrame(() => gCenterDateTab(_activeDay, false));
 
             renderFilteredData();
+        }
+
+        /* ===== [신규 2026-10-24] 날짜 휠 (사장님 요청) =====
+           겉에는 '10월 24일 (토)' 단추 하나. 누르면 월 | 일 두 칸 휠이 올라와 돌려서 고른다.
+           고른 값은 원래 월 선택·날짜 단추와 같은 값(currentYear·currentMonth·currentDay)에 넣고 다시 그린다. */
+        const DW_DOW = ['일', '월', '화', '수', '목', '금', '토'];
+        function gDwMonths() {   // 자료가 있는 달 (오래된 달 → 최근 달)
+            const sel = document.getElementById('month-select');
+            return sel ? [...sel.options].map(o => o.value).reverse() : [];
+        }
+        function gDwDays(mKey) {   // 그 달에 배달이 있는 날 (1일 → 말일), 맨 앞은 '전체'
+            const m = String(mKey).match(/(\d+)년\s*(\d+)월/); if (!m) return ['전체'];
+            const set = new Set();
+            (rawOrders || []).forEach(it => {
+                const ds = getOrderDateInfo(it).dateStr; if (!ds || ds === '기타') return;
+                const p = ds.split('-');
+                if (+p[0] === +m[1] && +p[1] === +m[2]) set.add(parseInt(p[2]) + '일');
+            });
+            return ['전체', ...[...set].sort((a, b) => parseInt(a) - parseInt(b))];
+        }
+        function gDwDayLabel(mKey, day) {
+            if (day === '전체') return '전체';
+            const m = String(mKey).match(/(\d+)년\s*(\d+)월/), d = parseInt(day);
+            const w = m ? DW_DOW[new Date(+m[1], +m[2] - 1, d).getDay()] : '';
+            return `${d}일 (${w})`;
+        }
+        function gUpdateDatePickLabel() {
+            const el = document.getElementById('date-pick-label'); if (!el) return;
+            const mKey = `${currentYear} ${currentMonth}`;
+            el.innerText = (!currentDay || currentDay === '전체') ? `${currentMonth} 전체` : `${currentMonth} ${gDwDayLabel(mKey, currentDay)}`;
+            // [신규 2026-10-24] 오늘을 보고 있으면 [오늘] 단추를 칠해 둔다 (사장님 요청)
+            const n = new Date(), isToday = (mKey === `${n.getFullYear()}년 ${n.getMonth() + 1}월` && currentDay === n.getDate() + '일');
+            document.getElementById('date-today-btn')?.classList.toggle('on', isToday);
+        }
+        // 고른 달·날로 바꾼다. today=true 이면 오늘로
+        function gPickDate(mKey, day, today) {
+            if (today) {
+                const n = new Date();
+                mKey = `${n.getFullYear()}년 ${n.getMonth() + 1}월`;
+                const days = gDwDays(mKey);
+                day = days.includes(n.getDate() + '일') ? n.getDate() + '일' : '전체';
+                if (!gDwMonths().includes(mKey)) { showToast('오늘 배달 자료가 없어요.'); return; }
+            }
+            if (activeApartment) lastAptByDay[gDayKey()] = activeApartment;   // 떠나기 전 보던 아파트
+            if (currentYear && currentMonth && currentDay) lastDayByMonth[gMonthKey()] = currentDay;
+            const p = String(mKey).split(' ');
+            currentYear = p[0]; currentMonth = p[1]; currentDay = day || '전체';
+            lastDayByMonth[gMonthKey()] = currentDay;
+            activeApartment = lastAptByDay[gDayKey()] || "";
+            activeDong = activeApartment ? (lastDongByApt[gAptKey(activeApartment)] || "전체") : "전체";
+            buildDateTabs();
+        }
+        let _dw = null;   // 휠 창에서 고르는 중인 값 { m, d }
+        function openDateWheel() {
+            const months = gDwMonths(); if (!months.length) return;
+            _dw = { m: `${currentYear} ${currentMonth}`, d: currentDay || '전체' };
+            const back = document.createElement('div');
+            back.className = 'dw-back'; back.id = 'date-wheel';
+            back.onclick = e => { if (e.target === back) closeDateWheel(); };
+            back.innerHTML = `<div class="dw-sheet">
+                <div style="display:flex; align-items:center;">
+                    <b style="flex:1; font-size:15px; color:#0f172a;">날짜 고르기</b>
+                    <button type="button" onclick="_dw && (_dw.today = true); gDwToday()" style="border:none; background:none; font:inherit; font-size:13px; font-weight:800; color:#2563eb; cursor:pointer;">오늘로</button>
+                </div>
+                <div class="dw-cols"><div class="dw-col" id="dw-m"></div><div class="dw-col" id="dw-d"></div></div>
+                <div style="display:flex; gap:8px;">
+                    <button type="button" onclick="closeDateWheel()" style="flex:1; height:46px; border:1px solid #cbd5e1; background:#fff; border-radius:12px; font:inherit; font-size:14px; font-weight:800; color:#475569; cursor:pointer;">취소</button>
+                    <button type="button" onclick="gDwOk()" style="flex:2; height:46px; border:none; background:#0f172a; color:#fff; border-radius:12px; font:inherit; font-size:15px; font-weight:900; cursor:pointer;">확인</button>
+                </div>
+            </div>`;
+            document.body.appendChild(back);
+            gDwFill('m', months, _dw.m, v => v.replace(/^\d+년\s*/, ''));
+            gDwFillDays();
+        }
+        function closeDateWheel() { document.getElementById('date-wheel')?.remove(); _dw = null; }
+        function gDwOk() { if (_dw) { const v = _dw; closeDateWheel(); gPickDate(v.m, v.d); } }
+        function gDwToday() {
+            const n = new Date(), mKey = `${n.getFullYear()}년 ${n.getMonth() + 1}월`;
+            if (!gDwMonths().includes(mKey)) { showToast('오늘 배달 자료가 없어요.'); return; }
+            _dw.m = mKey; _dw.d = n.getDate() + '일';
+            gDwFill('m', gDwMonths(), _dw.m, v => v.replace(/^\d+년\s*/, ''));
+            gDwFillDays();
+        }
+        function gDwFillDays() {
+            const days = gDwDays(_dw.m);
+            if (!days.includes(_dw.d)) { const n = new Date(); const t = n.getDate() + '일'; _dw.d = (`${n.getFullYear()}년 ${n.getMonth() + 1}월` === _dw.m && days.includes(t)) ? t : days[days.length - 1]; }
+            gDwFill('d', days, _dw.d, v => gDwDayLabel(_dw.m, v));
+        }
+        // 한 칸을 채우고, 고른 값을 가운데에 맞춘다. 돌려서 멈추면 가운데 값을 고른 것으로 본다.
+        function gDwFill(which, list, val, label) {
+            const col = document.getElementById('dw-' + which); if (!col) return;
+            const n = new Date(), todayM = `${n.getFullYear()}년 ${n.getMonth() + 1}월`, todayD = n.getDate() + '일';
+            col.innerHTML = list.map((v, i) => `<div class="dw-item${v === val ? ' sel' : ''}${(which === 'd' && _dw.m === todayM && v === todayD) ? ' today' : ''}" data-i="${i}">${gEsc(label(v))}</div>`).join('');
+            const idx = Math.max(0, list.indexOf(val));
+            col.scrollTop = idx * 40;
+            [...col.children].forEach((el, i) => el.onclick = () => col.scrollTo({ top: i * 40, behavior: 'smooth' }));
+            let t = null;
+            col.onscroll = () => {
+                const i = Math.max(0, Math.min(list.length - 1, Math.round(col.scrollTop / 40)));
+                [...col.children].forEach((el, k) => el.classList.toggle('sel', k === i));
+                clearTimeout(t);
+                t = setTimeout(() => {
+                    if (!_dw) return;
+                    if (which === 'm') { if (_dw.m !== list[i]) { _dw.m = list[i]; gDwFillDays(); } }
+                    else _dw.d = list[i];
+                }, 120);
+            };
         }
 
         /* [신규 2026-10-24] 날짜 단추를 날짜 줄(가로로 미는 줄) 가운데로 옮긴다 */
