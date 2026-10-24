@@ -246,7 +246,7 @@
             background: var(--bg-color);
             padding-top: 8px;
             padding-bottom: 8px;
-            box-shadow: 0 3px 6px rgba(0, 0, 0, 0.06);
+            border-bottom: 1px solid #e2e8f0;   /* [수정 2026-10-24] 그림자 때문에 붕 떠 보여서 얇은 선으로 (사장님 요청) */
         }
 
         .btn-select {
@@ -266,7 +266,7 @@
             background-color: var(--primary);   /* [수정 2026-10-24] 고른 아파트는 처음처럼 모켓 초록 */
             border-color: var(--primary);
             color: #ffffff;
-            box-shadow: 0 4px 10px rgba(16, 185, 129, 0.25);
+            box-shadow: none;   /* [수정 2026-10-24] 고른 아파트 단추의 초록 그림자도 뺌 */
         }
 
         .btn-select.dong-btn.active {
