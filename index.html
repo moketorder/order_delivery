@@ -2078,11 +2078,26 @@
                     activeApartment = lastAptByDay[gDayKey()] || "";
                     activeDong = activeApartment ? (lastDongByApt[gAptKey(activeApartment)] || "전체") : "전체";
                     renderFilteredData();
+                    gCenterDateTab(btn, true);   // [신규 2026-10-24] 누른 날짜를 날짜 줄 가운데로 (사장님 요청)
                 };
                 dateContainer.appendChild(btn);
             });
 
+            // [신규 2026-10-24] 처음 열 때도 고른 날짜가 가운데에 오게
+            const _activeDay = dateContainer.querySelector('.date-tab-btn.active');
+            if (_activeDay) requestAnimationFrame(() => gCenterDateTab(_activeDay, false));
+
             renderFilteredData();
+        }
+
+        /* [신규 2026-10-24] 날짜 단추를 날짜 줄(가로로 미는 줄) 가운데로 옮긴다 */
+        function gCenterDateTab(btn, smooth) {
+            const box = document.getElementById('date-tabs');
+            if (!box || !btn) return;
+            const b = btn.getBoundingClientRect(), c = box.getBoundingClientRect();
+            const left = box.scrollLeft + (b.left - c.left) - (c.width - b.width) / 2;
+            try { box.scrollTo({ left: Math.max(0, left), behavior: smooth ? 'smooth' : 'auto' }); }
+            catch (e) { box.scrollLeft = Math.max(0, left); }
         }
 
         // [삭제] 과거 보관함(orders_archive, 약 1.8MB) 조회는 없앴다.
