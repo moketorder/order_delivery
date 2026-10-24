@@ -85,10 +85,14 @@
             font-size: 12px;
             color: var(--text-sub);
             font-weight: 700;
-            background: #f1f5f9;
-            padding: 6px 10px;
-            border-radius: 8px;
+            /* [수정 2026-10-24] 제목 밑 작은 글씨로 — 상자 없이 */
+            font-size: 11px;
         }
+
+        /* [신규 2026-10-24] 제목 줄 오른쪽 둥근 네모 단추 (찾기 · 새로 받기 · 설정) */
+        .hd-icons { display:flex; gap:6px; flex:0 0 auto; }
+        .hd-icon { width:38px; height:38px; padding:0; border:1px solid #cbd5e1; background:#fff; color:#475569; border-radius:var(--radius-sub); cursor:pointer; display:flex; align-items:center; justify-content:center; }
+        .hd-icon.on { border-color:#475569; background:#f1f5f9; }
 
         .sync-dot {
             width: 6px;
@@ -118,13 +122,14 @@
             display: none;
         }
 
-        .select-dropdown {
+        .select-dropdown {   /* [수정 2026-10-24] 위쪽 메뉴 모양 통일 — 높이 42px · 회색 얇은 테두리 · 같은 둥글기 (사장님 요청) */
             width: 100%;
-            padding: 10px 14px;
+            height: 42px;
+            padding: 0 12px;
             border-radius: var(--radius-sub);
             font-size: 14px;
             font-weight: 800;
-            border: 1.5px solid #cbd5e1;
+            border: 1px solid #cbd5e1;
             background: #ffffff;
             color: var(--text-main);
             outline: none;
@@ -142,7 +147,7 @@
             border-radius: 20px;
             background: #ffffff;   /* [수정 2026-10-24] 쑥색: 회색 덩어리 → 흰 바탕 + 연한 테두리 */
             color: #475569;
-            border: 1px solid #bfdbfe;
+            border: 1px solid #cbd5e1;   /* [수정 2026-10-24] 다른 메뉴와 같은 회색 테두리 */
             font-weight: 800;
             font-size: 13px;
             cursor: pointer;
@@ -155,13 +160,8 @@
         }
 
         /* 검색창 */
-        .search-card {
-            background: var(--card-color);
-            border-radius: var(--radius-main);
-            padding: 12px;
-            box-shadow: var(--shadow);
-            border: 1px solid #cbd5e1;
-            margin-bottom: 12px;
+        .search-card {   /* [수정 2026-10-24] 검색칸을 감싼 흰 상자를 뺌 — 다른 메뉴처럼 칸만 보이게 */
+            margin-bottom: 10px;
         }
 
         .search-input-wrapper {
@@ -170,8 +170,10 @@
 
         .search-input {
             width: 100%;
-            padding: 10px 36px 10px 12px;
-            border: 1.5px solid #cbd5e1;
+            height: 42px;
+            padding: 0 36px 0 12px;
+            border: 1px solid #cbd5e1;
+            background: #ffffff;
             border-radius: var(--radius-sub);
             font-size: 14px;
             font-weight: 600;
@@ -1009,46 +1011,44 @@
     <div class="toast" id="toast"></div>
 
     <!-- 헤더 -->
+    <!-- [수정 2026-10-24] 위쪽 메뉴를 줄였다 (사장님 선택 — 검색은 돋보기로)
+         · 제목 줄 오른쪽에 돋보기 · 새로고침 · 설정
+         · 월 선택과 날짜를 한 줄로
+         · 검색칸은 돋보기를 누를 때만 펼친다 -->
     <div class="header">
-        <h1>MOKET 배달배송</h1>
-        <div class="sync-status" onclick="loadData(true)" style="cursor: pointer;" title="새로고침">
-            <span class="sync-dot"></span>
-            <span id="sync-time-text">동기화 중...</span>
+        <div style="display:flex; flex-direction:column; gap:2px; min-width:0;">
+            <h1>MOKET 배달배송</h1>
+            <div class="sync-status" onclick="loadData(true)" style="cursor: pointer;" title="새로고침">
+                <span class="sync-dot"></span>
+                <span id="sync-time-text">동기화 중...</span>
+            </div>
+        </div>
+        <div class="hd-icons">
+            <button type="button" id="btn-search-toggle" class="hd-icon" onclick="toggleSearch()" title="찾기" aria-label="찾기"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></button>
+            <!-- [수정] '전체'(배달완료 여부 순환) 버튼 자리를 갱신 버튼으로 바꿨다.
+                 화면을 켤 때마다 자동으로 받지 않고, 이 버튼을 누를 때만 최신 주문을 받는다. -->
+            <button type="button" id="btn-refresh-orders" class="hd-icon" onclick="loadData(true)" title="새로 받기" aria-label="새로 받기"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><polyline points="21 3 21 9 15 9"/></svg></button>
+            <!-- [수정] '🚪 비번' 단추를 '⚙️ 설정'으로 바꿨다. 비번과 아파트 순서를 여기서 고친다. -->
+            <button type="button" class="hd-icon" onclick="openSettings()" title="설정" aria-label="설정"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
         </div>
     </div>
 
     <div class="container">
-        <!-- 월 필터 및 배달 완료 여부 토글 버튼 -->
-        <div style="margin-bottom: 8px; display: flex; gap: 8px; align-items: center;">
-            <select id="month-select" class="select-dropdown" onchange="handleMonthChange(this.value)" style="flex: 1; min-width: 0;">
+        <!-- 월 선택 + 날짜 (한 줄) -->
+        <div style="display:flex; gap:8px; align-items:center; margin-bottom:8px;">
+            <select id="month-select" class="select-dropdown" onchange="handleMonthChange(this.value)" style="flex:0 0 auto; width:128px; padding:0 6px 0 10px;">
                 <!-- 동적 로드 -->
             </select>
-            <!-- [수정] '전체'(배달완료 여부 순환) 버튼 자리를 갱신 버튼으로 바꿨다.
-                 화면을 켤 때마다 자동으로 받지 않고, 이 버튼을 누를 때만 최신 주문을 받는다. -->
-            <button id="btn-refresh-orders" onclick="loadData(true)" class="btn-select" title="새로 받기" aria-label="새로 받기" style="width: 42px; height: 42px; padding: 0; border-radius: var(--radius-sub); flex-shrink: 0; display: flex; align-items: center; justify-content: center; background: #ffffff; color: #475569; border: 1px solid #cbd5e1; transition: var(--transition);">
-                <!-- [수정 2026-10-24] 파란 🔄 그림과 '갱신' 글씨가 너무 튀어서, 진한 회색 선 그림만 둔다 (사장님 요청) -->
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><polyline points="21 3 21 9 15 9"/></svg>
-            </button>
-        </div>
-        <!-- 날짜 필터 탭 -->
-        <div class="date-tabs-container" id="date-tabs">
-            <!-- 동적 로드 -->
+            <div class="date-tabs-container" id="date-tabs" style="flex:1; min-width:0; padding:0;">
+                <!-- 동적 로드 -->
+            </div>
         </div>
 
-        <!-- 검색창 및 날짜 범위 필터 -->
-        <div class="search-card">
-            <div class="search-input-wrapper" style="display: flex; gap: 8px; align-items: center;">
-                <!-- [수정] 기간 선택(일·주·월·전체)을 없앴다.
-                     '전체'는 과거 보관함(약 1.8MB)을 통째로 받았고, 나머지는 이미 받아둔 자료를
-                     좁혀 보는 용도라 배달에는 쓸모가 적었다. 이제 항상 최근 한 달치를 보여준다. -->
-                <div style="position: relative; flex: 1; min-width: 0;">
-                    <input type="text" id="searchInput" class="search-input" placeholder="고객명, 연락처, 호수, 상품명 검색..." onkeyup="handleSearchInput()">
-                    <button id="clearSearchBtn" class="clear-search-btn" onclick="clearSearch()">&times;</button>
-                </div>
-                <!-- [수정] '🚪 비번' 단추를 '⚙️ 설정'으로 바꿨다. 비번과 아파트 순서를 여기서 고친다. -->
-                <button type="button" onclick="openSettings()" title="설정"
-                    aria-label="설정"
-                    style="flex:0 0 auto; width:42px; height:42px; padding:0; border:1px solid #cbd5e1; background:#fff; color:#475569; border-radius:10px; cursor:pointer; display:flex; align-items:center; justify-content:center;"><!-- [수정 2026-10-24] ⚙️ 그림 글자 대신 진한 회색 선 그림 (갱신 단추와 같은 모양, 사장님 요청) --><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
+        <!-- 검색칸 — 돋보기를 누르면 펼친다. 글이 있으면 계속 펼쳐 둔다 -->
+        <div class="search-card" id="search-row" style="display:none;">
+            <div style="position: relative;">
+                <input type="text" id="searchInput" class="search-input" placeholder="고객명, 연락처, 호수, 상품명 검색..." onkeyup="handleSearchInput()">
+                <button id="clearSearchBtn" class="clear-search-btn" onclick="clearSearch()">&times;</button>
             </div>
         </div>
 
@@ -3934,7 +3934,7 @@
                    똑같이 회색·흰색이면 목록을 훑을 때 비번 카드인지 주문 카드인지 헷갈렸다.
                    테두리·머리줄을 살구빛으로 바꿔 한눈에 구분되게 하고, 짜임은 그대로 둔다. */
                 pwdCard.className = 'rider-card';
-                pwdCard.style.marginBottom = '14px';
+                pwdCard.style.marginBottom = '0';   // [수정 2026-10-24] 아래 카드와 너무 떨어져 보여서 — 카드끼리 간격(12px)만 남김 (사장님 요청)
                 pwdCard.style.borderColor = '#fbbf24';
                 pwdCard.style.background = '#fffdf7';
                 pwdCard.innerHTML = `
@@ -3944,16 +3944,16 @@
                             title="비번 고치기"
                             style="flex:0 0 auto; padding:4px 10px; border:1.5px solid #fbbf24; background:#fff; color:#b45309; border-radius:7px; font-size:12.5px; font-weight:800; cursor:pointer;">수정</button>` : ''}
                     </div>
-                    <div class="rider-card-body" style="gap:0; padding:10px 16px 12px;">
+                    <div class="rider-card-body" style="gap:0; padding:4px 16px 5px;"><!-- [수정 2026-10-24] 개인 카드 공동현관 줄처럼 높이를 줄임 (사장님 요청) -->
                         ${gCommonPwdOf(activeApartment) ? `
-                                <div style="display:flex; align-items:stretch; gap:0; padding:7px 0;">
+                                <div style="display:flex; align-items:stretch; gap:0; padding:4px 0;">
                                     <span style="flex:0 0 86px; display:flex; align-items:center; justify-content:center; font-size:17px; font-weight:800; line-height:1.5; color:#a16207; white-space:nowrap; border-right:1px solid #fde68a; padding-right:14px;">공용</span>
                                     <span style="flex:1; min-width:0; display:flex; align-items:center; padding-left:17px; font-size:17px; font-weight:900; line-height:1.5; color:#78350f; word-break:break-all; letter-spacing:0.5px;">${gEsc(gCommonPwdOf(activeApartment))}</span>
                                 </div>` : ''}
                         ${slots.length === 0
                             ? (gCommonPwdOf(activeApartment) ? '' : `<div style="font-size:12.5px; font-weight:700; color:#b7a894;">적어 둔 비번이 없습니다.</div>`)
                             : slots.map((s, i) => `
-                                <div style="display:flex; align-items:stretch; gap:0; padding:7px 0; ${(i || gCommonPwdOf(activeApartment)) ? "border-top:1px solid #fde68a;" : ""}">
+                                <div style="display:flex; align-items:stretch; gap:0; padding:4px 0; ${(i || gCommonPwdOf(activeApartment)) ? "border-top:1px solid #fde68a;" : ""}">
                                     <span style="flex:0 0 86px; display:flex; align-items:center; justify-content:center; font-size:17px; font-weight:800; line-height:1.5; color:#a16207; white-space:nowrap; border-right:1px solid #fde68a; padding-right:14px;">${gEsc(gSlotLabel(s))}</span>
                                     <span style="flex:1; min-width:0; display:flex; align-items:center; padding-left:17px; font-size:17px; font-weight:900; line-height:1.5; color:#78350f; word-break:break-all; letter-spacing:0.5px;">${gEsc(s.pwd)}</span>
                                 </div>`).join('')}
@@ -5169,6 +5169,18 @@
         // 검색어 입력 이벤트
         function handleSearchInput() {
             renderFilteredData();
+        }
+
+        // [신규 2026-10-24] 돋보기 — 검색칸을 펼치고 접는다. 접을 때 적어 둔 글은 지운다.
+        function toggleSearch(force) {
+            const row = document.getElementById('search-row'), btn = document.getElementById('btn-search-toggle');
+            const input = document.getElementById('searchInput');
+            if (!row) return;
+            const open = (typeof force === 'boolean') ? force : (row.style.display === 'none');
+            row.style.display = open ? '' : 'none';
+            if (btn) btn.classList.toggle('on', open);
+            if (open) { setTimeout(() => input && input.focus(), 0); }
+            else if (input && input.value) { input.value = ''; renderFilteredData(); }
         }
 
         function clearSearch() {
