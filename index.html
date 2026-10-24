@@ -164,6 +164,7 @@
         .date-pick-btn svg { flex:0 0 auto; color:#64748b; }
         .date-today-btn { flex:0 0 auto; height:42px; padding:0 14px; border:1px solid #cbd5e1; border-radius:var(--radius-sub); background:#fff; color:#475569; font:inherit; font-size:13.5px; font-weight:800; cursor:pointer; }
         .date-today-btn.on { background:var(--text-main); border-color:var(--text-main); color:#fff; }   /* 오늘을 보고 있을 때 */
+        .search-date-band { padding:6px 16px; background:#0f172a; color:#fff; font-size:13px; font-weight:800; letter-spacing:-0.2px; }   /* [신규 2026-10-24] 검색 결과 카드의 배달 날짜 */
         .dw-back { position:fixed; inset:0; z-index:10060; background:rgba(15,23,42,.45); display:flex; align-items:flex-end; justify-content:center; }
         .dw-sheet { width:100%; max-width:480px; background:#fff; border-radius:18px 18px 0 0; padding:14px 16px calc(14px + env(safe-area-inset-bottom)); box-sizing:border-box; }
         .dw-cols { position:relative; display:flex; gap:8px; margin:6px 0 12px; }
@@ -1050,6 +1051,14 @@
     </div>
 
     <div class="container">
+        <!-- 검색칸 — 돋보기를 누르면 펼친다. [수정 2026-10-24] 날짜 위로 옮김, 검색할 때는 날짜와 상관없이 전부에서 찾는다 (사장님 요청) -->
+        <div class="search-card" id="search-row" style="display:none;">
+            <div style="position: relative;">
+                <input type="text" id="searchInput" name="rider-find-q" class="search-input" placeholder="고객명, 연락처, 호수, 상품명 검색..." onkeyup="handleSearchInput()" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"><!-- [수정 2026-10-24] 브라우저가 전에 적은 검색어를 목록으로 띄우지 않게 (사장님 요청) -->
+                <button id="clearSearchBtn" class="clear-search-btn" onclick="clearSearch()">&times;</button>
+            </div>
+        </div>
+
         <!-- [신규 2026-10-24] 날짜는 단추 하나 — 누르면 월 | 일 휠이 올라온다 (사장님 요청) -->
         <div style="display:flex; gap:8px; align-items:center; margin-bottom:8px;">
             <button type="button" id="date-pick-btn" class="date-pick-btn" onclick="openDateWheel()">
@@ -1065,14 +1074,6 @@
             </select>
             <div class="date-tabs-container" id="date-tabs" style="flex:1; min-width:0; padding:0;">
                 <!-- 동적 로드 -->
-            </div>
-        </div>
-
-        <!-- 검색칸 — 돋보기를 누르면 펼친다. 글이 있으면 계속 펼쳐 둔다 -->
-        <div class="search-card" id="search-row" style="display:none;">
-            <div style="position: relative;">
-                <input type="text" id="searchInput" name="rider-find-q" class="search-input" placeholder="고객명, 연락처, 호수, 상품명 검색..." onkeyup="handleSearchInput()" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"><!-- [수정 2026-10-24] 브라우저가 전에 적은 검색어를 목록으로 띄우지 않게 (사장님 요청) -->
-                <button id="clearSearchBtn" class="clear-search-btn" onclick="clearSearch()">&times;</button>
             </div>
         </div>
 
@@ -2263,7 +2264,9 @@
             //   · 날짜 탭에서 특정 날짜를 고르면 → 그 날짜만
             //   · '전체'면 → 고른 달 전체
             //  검색어는 이 범위 안에서 걸린다.
+            // [수정 2026-10-24] 검색어가 있으면 날짜와 상관없이 받아 둔 자료 전체에서 찾는다 (사장님 요청)
             let filtered = rawOrders.filter(item => {
+                if (search !== "") return true;
                 const info = getOrderDateInfo(item);
                 if (!info.dateStr || info.dateStr === "기타") return true; // 날짜를 못 읽는 건은 항상 보여준다
 
@@ -4194,7 +4197,12 @@
                     return canceled ? s : s + (parseInt(o.total || 0) || 0);
                 }, 0);
 
-                card.innerHTML = `
+                // [신규 2026-10-24] 검색할 때만 카드 맨 위에 배달 날짜를 붙인다 (날짜와 상관없이 찾으므로, 사장님 요청)
+                const _srch = String(document.getElementById('searchInput')?.value || '').trim();
+                const _srchDates = _srch ? [...new Set((customer.orders || []).map(o => getOrderDateInfo(o).dateStr).filter(d => d && d !== '기타'))].sort().reverse() : [];
+                const _srchDateHtml = _srchDates.length ? `<div class="search-date-band">${_srchDates.map(d => { const p = d.split('-'); const w = ['일','월','화','수','목','금','토'][new Date(+p[0], +p[1] - 1, +p[2]).getDay()]; return `${+p[1]}월 ${+p[2]}일 (${w})`; }).join(' · ')} 배달</div>` : '';
+
+                card.innerHTML = `${_srchDateHtml}
                     <div class="rider-card-header${customer.entrance ? ' has-pwd' : ''}">
                         <span class="unit-number">${fullDongHo}</span>
                         <span class="customer-name">${customer.name}</span>
