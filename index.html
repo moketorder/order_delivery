@@ -425,12 +425,15 @@
             border-right: 1px solid #ccd9ea;   /* 세로선도 연하게 */
         }
 
+        /* [신규 2026-10-24] 비번 앞 자물쇠 그림 */
+        .rider-card-pwd .pk { flex:0 0 auto; display:flex; align-items:center; color:#1d4ed8; }
+
         .rider-card-pwd .pv {
             flex: 1;
             min-width: 0;
             display: flex;
             align-items: center;
-            padding: 0 0 0 14px;
+            padding: 0 0 0 7px;   /* [수정 2026-10-24] 자물쇠 그림 바로 옆 */
             font-size: 17px;     /* [수정 2026-10-24] 제목(아파트 동호수)과 같은 크기 (사장님 요청) */
             font-weight: 900;
             letter-spacing: 0.8px;
@@ -4207,11 +4210,12 @@
                 card.innerHTML = `${_srchDateHtml}
                     <div class="rider-card-header${customer.entrance ? ' has-pwd' : ''}">
                         <span class="unit-number">${fullDongHo}</span>
-                        <span class="customer-name">${customer.name}</span>
+                        ${customer.entrance ? '' : `<span class="customer-name">${customer.name}</span>`}
                     </div>
                     ${customer.entrance ? `
-                    <!-- [수정 2026-10-23] 공동현관 비번이 작아 잘 안 보였다 — 맨 위 동호수 바로 아래 칸으로 옮기고 동호수만큼 크게 (사장님 요청) -->
-                    <div class="rider-card-pwd"><span class="pl">공동현관</span><span class="pv" ondblclick="copyEntrancePwd(this)" title="두 번 누르면 비번 복사">${customer.entrance}</span></div>
+                    <!-- [수정 2026-10-24] '공동현관' 글자 대신 자물쇠 그림 + 비번, 아이디는 비번 줄 오른쪽 끝 (사장님 요청 — 시안 B-2)
+                         비번이 없는 집은 비번 줄이 없으므로 아이디는 제목칸 오른쪽에 그대로 둔다 -->
+                    <div class="rider-card-pwd"><span class="pk" aria-label="공동현관 비번"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></span><span class="pv" ondblclick="copyEntrancePwd(this)" title="두 번 누르면 비번 복사">${customer.entrance}</span><span class="customer-name">${customer.name}</span></div>
                     ` : ''}
                     <div class="rider-card-body">
                         <!-- [수정] '📋 복사' 단추가 자리를 많이 먹어 뗐다. 이제 주소줄을 누르면 도로명주소가 복사된다.
