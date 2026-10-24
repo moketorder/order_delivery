@@ -426,7 +426,7 @@
         }
 
         /* [신규 2026-10-24] 비번 앞 자물쇠 그림 */
-        .rider-card-pwd .pk { flex:0 0 auto; display:flex; align-items:center; color:#1d4ed8; }
+        .rider-card-pwd .pk { flex:0 0 auto; display:flex; align-items:center; color:#1d4ed8; transform:translateY(0.5px); }   /* 숫자와 눈높이 맞춤 — 1px은 내려가 보여서 0.5px (사장님 요청) */
 
         .rider-card-pwd .pv {
             flex: 1;
@@ -458,9 +458,8 @@
             font-weight: 800;
             color: var(--text-sub);   /* [수정 2026-10-24] 이름도 원래 글씨 그대로 */
             flex: 0 0 auto;
-            margin-left: 10px;
-            padding-left: 12px;
-            border-left: 1px solid #ccd9ea;   /* [신규 2026-10-24] 아이디 앞 세로선 — 공동현관 뒤 선과 같은 길이 (사장님 요청) */
+            margin-left: 12px;
+            /* [수정 2026-10-24] 아이디 앞 세로선은 뺐다 (사장님 요청) */
             line-height: 20px;   /* [수정 2026-10-24] 세로선 3개 모두 20px (사장님 요청) */
             align-self: center;
         }
