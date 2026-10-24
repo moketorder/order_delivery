@@ -408,6 +408,10 @@
             font-weight: 900;
             letter-spacing: 0.5px;
             word-break: break-all;
+            cursor: pointer;
+            touch-action: manipulation;   /* [신규 2026-10-24] 두 번 눌러 복사할 때 화면이 확대되지 않게 */
+            user-select: none;            /* 두 번 눌러도 글자가 파랗게 선택되지 않게 */
+            -webkit-user-select: none;
         }
 
         .unit-number {
@@ -1509,6 +1513,30 @@
             btn.innerText = ok ? '✅ 복사됨' : '❌ 실패';
             btn.disabled = true;
             setTimeout(() => { btn.innerText = orig; btn.disabled = false; }, 1400);
+        }
+
+        /* [신규 2026-10-24] 배달 카드의 공동현관 비번을 두 번 누르면 복사 (사장님 요청)
+           복사했다는 안내창을 살짝 띄운다. */
+        async function copyEntrancePwd(el) {
+            if (!el) return;
+            const text = String(el.innerText || '').trim();
+            if (!text) return;
+            try { window.getSelection && window.getSelection().removeAllRanges(); } catch (e) {}   // 두 번 눌러 생긴 글자 선택은 지운다
+            let ok = false;
+            try { await navigator.clipboard.writeText(text); ok = true; }
+            catch (e) {
+                try {
+                    const ta = document.createElement('textarea');
+                    ta.value = text;
+                    ta.style.cssText = 'position:fixed; left:-9999px; top:0;';
+                    document.body.appendChild(ta);
+                    ta.select();
+                    ok = document.execCommand('copy');
+                    document.body.removeChild(ta);
+                } catch (e2) { ok = false; }
+            }
+            // [수정 2026-10-24] 비번 글자는 그대로 두고 아래 안내창만 살짝 띄운다 (사장님 요청)
+            showToast(ok ? `비번 ${text} 복사했어요` : '복사하지 못했어요');
         }
 
         /* [신규] 주소줄을 눌러 복사 — 단추가 자리를 먹지 않게 줄 자체를 누른다.
@@ -3277,6 +3305,7 @@
         }
 
         function pwdFinderBack() {
+            _pwdEdit = false; _pwdDraft = null;   // [수정 2026-10-24] 고치던 것은 저장 안 하고 버린다
             if (_pwdView.dong) _pwdView.dong = '';
             else if (_pwdView.apt) _pwdView.apt = '';
             else if (_pwdFromSettings) { closePasswordFinder(); openSettings(); return; }
@@ -3391,73 +3420,49 @@
             try { localStorage.setItem('moket_entrance_passwords_cache', JSON.stringify(entrancePasswords)); } catch (e) {}
         }
 
-        // 지우기는 한 번 더 눌러 확인받는다 (confirm 창은 기기에 따라 막힌다)
-        let _pwdDelArmed = '';
-        function askDeletePwdSlot(key) {
-            if (_pwdDelArmed !== key) {
-                _pwdDelArmed = key;
-                renderPasswordFinder();
-                setTimeout(() => { if (_pwdDelArmed === key) { _pwdDelArmed = ''; renderPasswordFinder(); } }, 5000);
-                return;
-            }
-            _pwdDelArmed = '';
-            (async () => {
-                showLoader('지우는 중...');
-                try { await deletePwdSlot(key); showToast('칸을 지웠습니다.'); }
-                catch (e) { showToast('삭제 실패: ' + e.message); }
-                // [수정] 뒤에 깔린 배달 목록의 비번 카드도 함께 다시 그린다 (아래 commitPwdSlot과 같은 이유)
-                finally { hideLoader(); renderPasswordFinder(); renderFilteredData(); }
-            })();
+        /* [수정 2026-10-24] 동 하나를 한 번에 저장한다 (사장님 요청)
+           예전에는 줄마다 저장·삭제가 바로 서버에 들어갔고, 다른 줄 삭제를 누르면 화면을 다시 그려
+           적던 숫자·비번이 사라졌다. 이제 ✏️ 수정을 누르면 그 동의 칸을 초안(_pwdDraft)으로 떠 두고,
+           칸에 적는 것·삭제(지울 표시)·＋ 호수 칸 추가는 초안에만 적는다.
+           맨 밑 '저장'을 눌러야 서버에 한 번에 들어가고, '취소'는 초안을 버린다. */
+        let _pwdDraft = null;
+        function gPwdDraftBuild() {
+            const v = _pwdView;
+            if (_pwdDraft && _pwdDraft.apt === v.apt && _pwdDraft.dong === v.dong) return _pwdDraft;
+            _pwdDraft = {
+                apt: v.apt, dong: v.dong,
+                rows: gSlotsOf(v.apt, v.dong).map(sl => ({ key: sl.key, from: sl.from, to: sl.to, a: '', b: '', pwd: '', oldPwd: sl.pwd, del: false }))   // pwd = 새로 적은 비번 (비면 oldPwd 그대로)
+            };
+            return _pwdDraft;
         }
-
-        // 화면에 적은 값을 그대로 저장 (범위·비번 함께)
-        function commitPwdSlot(idx) {
-            const row = document.querySelector(`[data-slot="${idx}"]`);
-            if (!row) return;
-            const oldKey = row.getAttribute('data-key') || '';
-            const f = row.querySelector('[data-f]')?.value.trim();
-            const t = row.querySelector('[data-t]')?.value.trim();
-            const p = row.querySelector('[data-p]')?.value ?? '';
-            const isAll = row.getAttribute('data-all') === '1';
-
-            if (!isAll) {
-                const fn = parseInt(f), tn = parseInt(t);
-                if (isNaN(fn) || isNaN(tn)) { showToast('호수 범위를 숫자로 적어 주세요.'); return; }
-                if (fn > tn) { showToast('앞 숫자가 뒤 숫자보다 큽니다.'); return; }
-                /* [버그수정] 이미 있는 호수 칸으로 바꾸면 그 칸의 비번을 덮어써서
-                   적어 둔 비번이 사라졌다. 다른 칸이 쓰고 있으면 손대지 않는다. */
-                const newKey = gSlotKey(_pwdView.dong, fn, tn);
-                if (newKey !== oldKey && ((entrancePasswords[_pwdView.apt] || {})[newKey]) !== undefined) {
-                    showToast(`${fn}~${tn}호 칸은 이미 있습니다. 다른 호수를 골라 주세요.`); return;
-                }
-            }
-            (async () => {
-                showLoader('저장 중...');
-                try {
-                    await savePwdSlot(oldKey, _pwdView.dong, isAll ? null : parseInt(f), isAll ? null : parseInt(t), p);
-                    showToast('저장했습니다.');
-                    _pwdNewSlot = null;   // 새로 만들던 칸이었으면 접는다
-                } catch (e) { showToast('저장 실패: ' + e.message); }
-                /* [수정] 예전에는 '🚪 비번' 창만 다시 그렸다. 그래서 창을 닫으면
-                   뒤에 깔린 배달 목록의 비번 카드에 옛 값이 그대로 남아,
-                   '🔄 갱신'으로 자료를 다시 받아야 바뀐 비번이 보였다.
-                   고친 값은 이미 메모리와 저장소에 들어가 있으므로 목록만 다시 그리면 된다. */
-                finally { hideLoader(); renderPasswordFinder(); renderFilteredData(); }
-            })();
+        // 칸에 적는 대로 초안에만 남긴다 (화면은 다시 안 그린다 — 적던 칸이 그대로)
+        function pwdDraftSet(i, f, el) { const r = _pwdDraft && _pwdDraft.rows[i]; if (r) r[f] = String(el.value || ''); }
+        // 삭제: 있던 칸은 '지울 표시'만 (한 번 더 누르면 되살리기), 새로 더한 칸은 그냥 뺀다
+        function pwdDraftDel(i) {
+            const D = _pwdDraft; if (!D || !D.rows[i]) return;
+            if (!D.rows[i].key) D.rows.splice(i, 1);
+            else D.rows[i].del = !D.rows[i].del;
+            renderPasswordFinder();
         }
-
-        // 새로 만들던 칸을 접는다
-        function cancelNewPwdSlot() { _pwdNewSlot = null; renderPasswordFinder(); }
-
+        // [신규 2026-10-24] 비번 칸 한 줄의 실제 값 — 칸이 비어 있으면 흐리게 보이던 원래 비번 (사장님 요청: 지우고 쓰지 않게)
+        function gPwdRowPwd(r) { return String(r.pwd || '').trim() ? String(r.pwd) : String(r.oldPwd || ''); }
+        // 호수 칸 한 줄의 실제 값 — 칸이 비어 있으면 흐리게 보이던 원래 값
+        function gPwdRowHo(r) {
+            if (r.from == null) return null;   // '전체' 칸 (호수 없는 옛 칸)
+            const f = String(r.a || '').trim() || String(r.from ?? ''), t = String(r.b || '').trim() || String(r.to ?? '');
+            return [parseInt(f), parseInt(t)];
+        }
         /* 빈 칸을 하나 더한다.
            [수정] 예전에는 '가장 큰 호수 다음'으로 잡아서, 3~4호만 있는 동에 1~2호를
            넣으려 해도 5~6호가 나왔다. 라인은 1~2 · 3~4처럼 두 집씩 묶이므로,
-           그 자리들 중 비어 있는 첫 자리를 고른다. (주문관리 전단지 화면과 같은 방식) */
+           그 자리들 중 비어 있는 첫 자리를 고른다. (주문관리 전단지 화면과 같은 방식)
+           [수정 2026-10-24] 초안에 줄만 더한다 (저장 눌러야 서버에) */
         function addPwdSlot() {
-            const slots = gSlotsOf(_pwdView.apt, _pwdView.dong).filter(s => s.from != null);
-            const 빈자리 = gFreeHoRange(slots);
+            const D = _pwdDraft; if (!D) return;
+            const used = D.rows.filter(r => !r.del).map(gPwdRowHo).filter(h => h && !isNaN(h[0]) && !isNaN(h[1])).map(h => ({ from: h[0], to: h[1] }));
+            const 빈자리 = gFreeHoRange(used);
             if (!빈자리) { showToast('넣을 자리가 다 찼습니다.'); return; }
-            _pwdNewSlot = { from: 빈자리[0], to: 빈자리[1] };
+            D.rows.push({ key: '', from: 빈자리[0], to: 빈자리[1], a: '', b: '', pwd: '', oldPwd: '', del: false });
             renderPasswordFinder();
         }
 
@@ -3477,14 +3482,51 @@
             }
             return null;
         }
-        let _pwdNewSlot = null;
+
+        // 저장 — 초안을 서버에 한 번에
+        async function pwdDraftSave() {
+            const D = _pwdDraft; if (!D || !gIsStore()) return;
+            const live = D.rows.filter(r => !r.del);
+            const plan = [];
+            for (const r of live) {
+                const h = gPwdRowHo(r);
+                if (h === null) { plan.push({ r, key: r.key, from: null, to: null }); continue; }
+                const [fn, tn] = h;
+                if (isNaN(fn) || isNaN(tn) || fn < 1 || tn > 99) { showToast('호수는 1~99 숫자로 적어 주세요.'); return; }
+                if (fn > tn) { showToast(`${fn}~${tn}호 — 앞 숫자가 뒤 숫자보다 큽니다.`); return; }
+                plan.push({ r, key: gSlotKey(D.dong, fn, tn), from: fn, to: tn });
+            }
+            // 호수가 겹치면 저장하지 않는다 (같은 칸 두 개면 한 비번이 덮여 사라진다)
+            const ranged = plan.filter(p => p.from != null);
+            for (let i = 0; i < ranged.length; i++) for (let j = i + 1; j < ranged.length; j++) {
+                const x = ranged[i], y = ranged[j];
+                if (x.from <= y.to && y.from <= x.to) { showToast(`${x.from}~${x.to}호와 ${y.from}~${y.to}호가 겹칩니다. 호수를 고쳐 주세요.`); return; }
+            }
+            const finalKeys = new Set(plan.map(p => p.key));
+            const writes = plan.filter(p => !p.r.key || p.key !== p.r.key || gPwdRowPwd(p.r) !== String(p.r.oldPwd));
+            const removes = D.rows.filter(r => r.key && !finalKeys.has(r.key)).map(r => r.key);
+            if (!writes.length && !removes.length) { _pwdEdit = false; _pwdDraft = null; renderPasswordFinder(); showToast('바뀐 것이 없습니다.'); return; }
+            showLoader('저장 중...');
+            try {
+                // 먼저 새 자리에 쓰고, 그다음 안 쓰는 옛 자리를 지운다 (서로 자리를 바꿔도 안 사라지게)
+                for (const p of writes) await savePwdSlot('', D.dong, p.from, p.to, gPwdRowPwd(p.r));
+                for (const k of removes) await deletePwdSlot(k);
+                _pwdEdit = false; _pwdDraft = null;
+                showToast('저장했습니다.');
+            } catch (e) { showToast('저장 실패: ' + e.message); }
+            /* [수정] 뒤에 깔린 배달 목록의 비번 카드도 함께 다시 그린다.
+               고친 값은 이미 메모리와 저장소에 들어가 있으므로 목록만 다시 그리면 된다. */
+            finally { hideLoader(); renderPasswordFinder(); renderFilteredData(); }
+        }
+        // 취소 — 초안을 버리고 보기로 (서버는 그대로)
+        function pwdDraftCancel() { _pwdEdit = false; _pwdDraft = null; renderPasswordFinder(); }
 
         // 보기 ↔ 고치기 전환. 창을 새로 열 때는 늘 보기부터 시작한다.
         let _pwdEdit = false;
         // [수정] 비번 고치기는 가게 계정만 (배달기사는 보기만). 서버 규칙도 가게만 쓰게 막혀 있다.
         function togglePwdEdit(on) {
             if (on && !gIsStore()) { showToast('비번은 가게에서만 고칠 수 있습니다.'); return; }
-            _pwdEdit = !!on; _pwdNewSlot = null; _pwdDelArmed = ""; renderPasswordFinder();
+            _pwdEdit = !!on; _pwdDraft = null; renderPasswordFinder();
         }
 
         function renderPasswordFinder() {
@@ -3532,39 +3574,39 @@
                     return;
                 }
 
-                // 고치기
-                const editing = slots.slice();
-                if (_pwdNewSlot) editing.push({ key: '', from: _pwdNewSlot.from, to: _pwdNewSlot.to, pwd: '', isNew: true });
-
+                // 고치기 — [수정 2026-10-24] 초안에서 그린다. 저장·취소는 맨 밑에 하나씩
+                const D = gPwdDraftBuild();
                 const cell = 'height:38px; padding:4px 8px; border:1.5px solid #e2e8f0; border-radius:8px; font-size:15px; font-weight:800; text-align:center; box-sizing:border-box;';
-                const rowHtml = (s, i) => {
-                    const isAll = (s.from == null);
-                    const armed = (_pwdDelArmed === s.key && s.key);
-                    return `<div data-slot="${i}" data-key="${gEsc(s.key)}" data-all="${isAll ? '1' : '0'}" style="padding:12px 0; ${i ? 'border-top:1px solid #f1f5f9;' : ''}">`
+                const rowHtml = (r, i) => {
+                    const isAll = (gPwdRowHo(r) === null);
+                    const off = r.del;
+                    return `<div style="padding:12px 0; ${i ? 'border-top:1px solid #f1f5f9;' : ''} ${off ? 'opacity:.55;' : ''}">`
                         + `<div style="display:flex; align-items:center; gap:6px;">`
                         + (isAll
                             ? `<span style="flex:1; font-size:13px; font-weight:800; color:#94a3b8;">전체 (호수 구분 없음)</span>`
-                            : `<input data-f type="number" inputmode="numeric" value="${s.from}" style="width:56px; ${cell}">`
+                            // 기존 호수는 흐리게(placeholder) — 누르면 지우지 않고 바로 새 숫자를 쓴다. 비워 두면 원래 값
+                            : `<input type="number" inputmode="numeric" value="${gEsc(r.a)}" placeholder="${r.from}" oninput="pwdDraftSet(${i},'a',this)" ${off ? 'disabled' : ''} style="width:56px; ${cell}">`
                               + `<span style="font-size:13px; font-weight:800; color:#cbd5e1;">~</span>`
-                              + `<input data-t type="number" inputmode="numeric" value="${s.to}" style="width:56px; ${cell}">`
-                              + `<span style="font-size:13px; font-weight:800; color:#64748b; margin-right:auto;">호</span>`)
-                        + `<button type="button" onclick="commitPwdSlot(${i})" style="height:38px; padding:0 14px; border:none; background:#10b981; color:#fff; border-radius:8px; font-size:12.5px; font-weight:800; cursor:pointer;">저장</button>`
-                        + (s.key
-                            ? `<button type="button" onclick="askDeletePwdSlot('${gEsc(s.key).replace(/'/g, "\\'")}')" style="height:38px; padding:0 11px; border:1.5px solid ${armed ? '#dc2626' : '#e2e8f0'}; background:${armed ? '#dc2626' : '#fff'}; color:${armed ? '#fff' : '#94a3b8'}; border-radius:8px; font-size:12px; font-weight:800; cursor:pointer; white-space:nowrap;">${armed ? '한 번 더' : '삭제'}</button>`
-                            : `<button type="button" onclick="cancelNewPwdSlot()" style="height:38px; padding:0 11px; border:1.5px solid #e2e8f0; background:#fff; color:#94a3b8; border-radius:8px; font-size:12px; font-weight:800; cursor:pointer;">취소</button>`)
+                              + `<input type="number" inputmode="numeric" value="${gEsc(r.b)}" placeholder="${r.to}" oninput="pwdDraftSet(${i},'b',this)" ${off ? 'disabled' : ''} style="width:56px; ${cell}">`
+                              + `<span style="font-size:13px; font-weight:800; color:#64748b;">호</span>`)
+                        + `<span style="margin-left:auto; font-size:11.5px; font-weight:800; color:${off ? '#dc2626' : '#16a34a'}; white-space:nowrap;">${off ? '저장하면 지워져요' : (r.key ? '' : '새 칸')}</span>`
+                        + `<button type="button" onclick="pwdDraftDel(${i})" style="height:38px; padding:0 11px; border:1.5px solid #e2e8f0; background:#fff; color:${off ? '#475569' : '#94a3b8'}; border-radius:8px; font-size:12px; font-weight:800; cursor:pointer; white-space:nowrap;">${off ? '되살리기' : (r.key ? '삭제' : '빼기')}</button>`
                         + `</div>`
-                        + `<input data-p type="text" value="${gEsc(s.pwd)}" placeholder="비번"`
+                        + `<input type="text" value="${gEsc(r.pwd)}" placeholder="${gEsc(r.oldPwd || '비번')}" oninput="pwdDraftSet(${i},'pwd',this)" ${off ? 'disabled' : ''}`
                         + ` style="width:100%; box-sizing:border-box; margin-top:7px; height:46px; padding:8px 12px; border:1.5px solid #e2e8f0; border-radius:9px; font-size:18px; font-weight:900; letter-spacing:1px; text-align:center; background:#fff;">`
                         + `</div>`;
                 };
 
                 body.innerHTML =
-                    (editing.length === 0
+                    (D.rows.length === 0
                         ? `<div style="padding:24px 0; text-align:center; color:#94a3b8; font-size:13px; font-weight:700;">칸이 없습니다.</div>`
-                        : editing.map(rowHtml).join(''))
+                        : D.rows.map(rowHtml).join(''))
                     + `<button type="button" onclick="addPwdSlot()" style="width:100%; margin-top:12px; padding:12px; border:1.5px dashed #cbd5e1; background:#fff; color:#64748b; border-radius:10px; font-size:13px; font-weight:800; cursor:pointer;">＋ 호수 칸 추가</button>`
-                    + `<button type="button" onclick="togglePwdEdit(false)" style="width:100%; margin-top:7px; padding:12px; border:none; background:#475569; color:#fff; border-radius:10px; font-size:13px; font-weight:800; cursor:pointer;">✔ 마치기</button>`
-                    + `<div style="margin-top:10px; font-size:11px; font-weight:700; color:#cbd5e1; line-height:1.6;">호수를 고치면 그 칸이 통째로 옮겨집니다. 고친 뒤 <b>저장</b>을 눌러 주세요.</div>`;
+                    + `<div style="display:flex; gap:7px; margin-top:7px;">`
+                    + `<button type="button" onclick="pwdDraftSave()" style="flex:2; padding:12px; border:none; background:#10b981; color:#fff; border-radius:10px; font-size:14px; font-weight:900; cursor:pointer;">저장</button>`
+                    + `<button type="button" onclick="pwdDraftCancel()" style="flex:1; padding:12px; border:1.5px solid #cbd5e1; background:#fff; color:#475569; border-radius:10px; font-size:13px; font-weight:800; cursor:pointer;">취소</button>`
+                    + `</div>`
+                    + `<div style="margin-top:10px; font-size:11px; font-weight:700; color:#94a3b8; line-height:1.6;">흐린 글자가 지금 호수·비번이에요. 고칠 칸만 바로 적으면 돼요. 비번을 없애려면 그 줄을 삭제하세요.<br><b>저장</b>을 눌러야 바뀌어요. 취소하면 아무것도 안 바뀌어요.</div>`;
                 return;
             }
 
@@ -3977,7 +4019,7 @@
                     </div>
                     ${customer.entrance ? `
                     <!-- [수정 2026-10-23] 공동현관 비번이 작아 잘 안 보였다 — 맨 위 동호수 바로 아래 칸으로 옮기고 동호수만큼 크게 (사장님 요청) -->
-                    <div class="rider-card-pwd"><span class="pl">공동현관</span><span class="pv">${customer.entrance}</span></div>
+                    <div class="rider-card-pwd"><span class="pl">공동현관</span><span class="pv" ondblclick="copyEntrancePwd(this)" title="두 번 누르면 비번 복사">${customer.entrance}</span></div>
                     ` : ''}
                     <div class="rider-card-body">
                         <!-- [수정] '📋 복사' 단추가 자리를 많이 먹어 뗐다. 이제 주소줄을 누르면 도로명주소가 복사된다.
