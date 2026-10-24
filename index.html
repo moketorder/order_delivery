@@ -456,6 +456,9 @@
             color: var(--text-main);   /* [수정 2026-10-24] 제목은 원래 글씨 그대로 (사장님 요청) */
         }
 
+        /* [신규 2026-10-24] 제목칸 아파트와 동호수 사이 세로선 — 글자 높이에 맞춤 */
+        .apt-sep { display:inline-block; width:1px; height:1.15em; background:#64748b; margin:0 10px; vertical-align:-0.22em; }   /* 조금 길게 (사장님 요청) */
+
         .customer-name {
             font-size: 13px;   /* [수정 2026-10-24] 아이디는 조금 작게 (사장님 요청) */
             font-weight: 800;
@@ -4142,7 +4145,7 @@
                 /* [수정] 아파트는 '[아파트] 동·호수', 아파트가 아닌 곳(기타)은 '도로명주소 + 상세주소'로 보인다.
                    도로명주소는 시·도까지 떼고(예: 경기 수원시 → 영통구부터), 괄호 속 동네 이름도 뺀다. */
                 const fullDongHo = (aptName && aptName !== '기타')
-                    ? `${aptName}<span style="color:#64748b; margin:0 6px;">·</span>${dongLabel}${hoLabel}`   // [수정 2026-10-24] 대괄호 대신 가운데 점으로 나눔, 점은 중간 회색 (사장님 — 시안 6-2)
+                    ? `${aptName}<span class="apt-sep" aria-hidden="true"></span>${dongLabel}${hoLabel}`   // [수정 2026-10-24] 아파트 │ 동호수 — 다른 세로선을 뺐으니 제목은 세로선으로 나눔 (사장님 요청)
                     : `${gShortRoadAddr(representativeItem.roadAddress || representativeItem.address)} ${String(representativeItem.addressDetail || '').trim()}`.trim();
 
                 // 전화번호 포맷 정규화
