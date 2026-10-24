@@ -373,8 +373,8 @@
         }
 
         .rider-card-header {
-            padding: 5px 16px;   /* [수정 2026-10-24] 제목칸이 두꺼워 보여서 공동현관 줄과 같은 높이(44px)로 (사장님 요청) */
-            min-height: 44px;
+            padding: 5px 16px;   /* 제목이 두 줄이 되면 위아래가 붙지 않게 */
+            min-height: 50px;   /* [수정 2026-10-24] 제목칸 50px · 비번칸 40px — 동별 비번 칸도 같다 (사장님 요청) */
             box-sizing: border-box;
             border-bottom: 1px solid #b4c6de;   /* 제목 덩어리 아래 선은 조금 진하게 */
             display: flex;
@@ -391,14 +391,16 @@
         /* [수정] '공동현관 : 비번' 대신 동별 비번 칸처럼 세로줄로 나눈다 (사장님 요청) */
         .rider-card-pwd {
             display: flex;
-            align-items: stretch;
-            padding: 5px 16px;   /* [수정] 세로줄은 위아래가 조금 빠지게 — 바깥 5px은 비우고 안쪽 칸에 4px (사장님 요청) */
+            align-items: center;
+            min-height: 40px;   /* [수정 2026-10-24] 비번칸은 한 줄일 때 선까지 40px, 세로선 20px. 비번이 길면 두 줄로 늘어난다 (사장님 요청) */
+            box-sizing: border-box;
+            padding: 9.5px 16px;
             border-bottom: 1px solid #b4c6de;   /* 제목 덩어리(동호수+비번) 아래 선 — 조금 진하게 */
             /* [수정 2026-10-24] 비번 줄은 제목칸보다 한 단 옅게 */
             background: #eef3fb;
             color: #1e3a8a;
             font-size: 17px;
-            line-height: 1.5;
+            line-height: 20px;   /* 세로선 20px */
         }
 
         .rider-card.completed .rider-card-pwd {
@@ -419,7 +421,7 @@
             font-weight: 800;
             color: #1d4ed8;      /* [수정 2026-10-24] '공동현관' 글자도 처음처럼 쨍한 파랑 (사장님 요청) */
             white-space: nowrap;
-            padding: 4px 14px 4px 0;
+            padding: 0 14px 0 0;   /* 세로선 = 글자 높이 */
             border-right: 1px solid #ccd9ea;   /* 세로선도 연하게 */
         }
 
@@ -428,7 +430,7 @@
             min-width: 0;
             display: flex;
             align-items: center;
-            padding: 4px 0 4px 14px;
+            padding: 0 0 0 14px;
             font-size: 17px;     /* [수정 2026-10-24] 제목(아파트 동호수)과 같은 크기 (사장님 요청) */
             font-weight: 900;
             letter-spacing: 0.8px;
@@ -456,9 +458,7 @@
             margin-left: 10px;
             padding-left: 12px;
             border-left: 1px solid #ccd9ea;   /* [신규 2026-10-24] 아이디 앞 세로선 — 공동현관 뒤 선과 같은 길이 (사장님 요청) */
-            line-height: 1.5;
-            padding-top: 6.5px;
-            padding-bottom: 6.5px;
+            line-height: 20px;   /* [수정 2026-10-24] 세로선 3개 모두 20px (사장님 요청) */
             align-self: center;
         }
 
@@ -4079,20 +4079,20 @@
                         <span style="font-size:17px; font-weight:900; color:#92400e;">${activeApartment} ${activeDong} 공동현관 비번</span><!-- [수정 2026-10-24] 메인 카드 제목과 같은 17px, 🚪 뺌 (사장님 요청) -->
                         ${gIsStore() ? `<button type="button" onclick="openPasswordFinder(); pwdPickApt('${gEsc(activeApartment).replace(/'/g, "\'")}'); pwdPickDong('${gEsc(activeDong).replace(/'/g, "\'")}'); togglePwdEdit(true);"
                             title="비번 고치기"
-                            style="flex:0 0 auto; padding:4px 10px; border:1.5px solid #fbbf24; background:#fff; color:#b45309; border-radius:7px; font-size:12.5px; font-weight:800; cursor:pointer;">수정</button>` : ''}
+                            style="flex:0 0 auto; padding:2px 10px; border:1.5px solid #fbbf24; background:#fff; color:#b45309; border-radius:7px; font-size:12.5px; font-weight:800; cursor:pointer;">수정</button>` : ''}
                     </div>
-                    <div class="rider-card-body" style="gap:0; padding:4px 16px 5px;"><!-- [수정 2026-10-24] 개인 카드 공동현관 줄처럼 높이를 줄임 (사장님 요청) -->
+                    <div class="rider-card-body" style="gap:0; padding:0 16px;"><!-- [수정 2026-10-24] 개인 카드 공동현관 줄처럼 높이를 줄임 (사장님 요청) -->
                         ${gCommonPwdOf(activeApartment) ? `
-                                <div style="display:flex; align-items:stretch; gap:0; padding:4px 0;">
-                                    <span style="flex:0 0 86px; display:flex; align-items:center; justify-content:center; font-size:17px; font-weight:800; line-height:1.5; color:#a16207; white-space:nowrap; border-right:1px solid #fde68a; padding-right:14px;">공용</span>
-                                    <span style="flex:1; min-width:0; display:flex; align-items:center; padding-left:17px; font-size:17px; font-weight:900; line-height:1.5; color:#78350f; word-break:break-all; letter-spacing:0.5px;">${gEsc(gCommonPwdOf(activeApartment))}</span>
+                                <div style="display:flex; align-items:center; gap:0; min-height:40px; box-sizing:border-box; padding:9.5px 0;">
+                                    <span style="flex:0 0 86px; display:flex; align-items:center; justify-content:center; font-size:17px; font-weight:800; line-height:20px; color:#a16207; white-space:nowrap; border-right:1px solid #fde68a; padding-right:14px;">공용</span>
+                                    <span style="flex:1; min-width:0; display:flex; align-items:center; padding-left:17px; font-size:17px; font-weight:900; line-height:20px; color:#78350f; word-break:break-all; letter-spacing:0.5px;">${gEsc(gCommonPwdOf(activeApartment))}</span>
                                 </div>` : ''}
                         ${slots.length === 0
                             ? (gCommonPwdOf(activeApartment) ? '' : `<div style="font-size:12.5px; font-weight:700; color:#b7a894;">적어 둔 비번이 없습니다.</div>`)
                             : slots.map((s, i) => `
-                                <div style="display:flex; align-items:stretch; gap:0; padding:4px 0; ${(i || gCommonPwdOf(activeApartment)) ? "border-top:1px solid #fde68a;" : ""}">
-                                    <span style="flex:0 0 86px; display:flex; align-items:center; justify-content:center; font-size:17px; font-weight:800; line-height:1.5; color:#a16207; white-space:nowrap; border-right:1px solid #fde68a; padding-right:14px;">${gEsc(gSlotLabel(s))}</span>
-                                    <span style="flex:1; min-width:0; display:flex; align-items:center; padding-left:17px; font-size:17px; font-weight:900; line-height:1.5; color:#78350f; word-break:break-all; letter-spacing:0.5px;">${gEsc(s.pwd)}</span>
+                                <div style="display:flex; align-items:center; gap:0; min-height:40px; box-sizing:border-box; padding:9.5px 0; ${(i || gCommonPwdOf(activeApartment)) ? "border-top:1px solid #fde68a;" : ""}">
+                                    <span style="flex:0 0 86px; display:flex; align-items:center; justify-content:center; font-size:17px; font-weight:800; line-height:20px; color:#a16207; white-space:nowrap; border-right:1px solid #fde68a; padding-right:14px;">${gEsc(gSlotLabel(s))}</span>
+                                    <span style="flex:1; min-width:0; display:flex; align-items:center; padding-left:17px; font-size:17px; font-weight:900; line-height:20px; color:#78350f; word-break:break-all; letter-spacing:0.5px;">${gEsc(s.pwd)}</span>
                                 </div>`).join('')}
                     </div>
                 `;
