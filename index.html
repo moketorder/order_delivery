@@ -4134,7 +4134,7 @@
                 /* [수정] 아파트는 '[아파트] 동·호수', 아파트가 아닌 곳(기타)은 '도로명주소 + 상세주소'로 보인다.
                    도로명주소는 시·도까지 떼고(예: 경기 수원시 → 영통구부터), 괄호 속 동네 이름도 뺀다. */
                 const fullDongHo = (aptName && aptName !== '기타')
-                    ? `${aptName}<span style="color:#94a3b8; margin:0 6px;">·</span>${dongLabel}${hoLabel}`   // [수정 2026-10-24] 대괄호 대신 가운데 점으로 나눔 (사장님 — 시안 6)
+                    ? `${aptName}<span style="color:#64748b; margin:0 6px;">·</span>${dongLabel}${hoLabel}`   // [수정 2026-10-24] 대괄호 대신 가운데 점으로 나눔, 점은 중간 회색 (사장님 — 시안 6-2)
                     : `${gShortRoadAddr(representativeItem.roadAddress || representativeItem.address)} ${String(representativeItem.addressDetail || '').trim()}`.trim();
 
                 // 전화번호 포맷 정규화
