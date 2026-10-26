@@ -2468,6 +2468,7 @@
                     if (m) {
                         const dongs = [...new Set(Object.keys(m).map(k => String(k).replace(/_\d+-\d+라인$/, '')))];
                         if (dongs.length === 1 && dongs[0]) return dongs[0];
+                        return '01동';   // [수정 2026-10-26] 아파트인데 동이 안 적혀 있으면 기본 01동 (사장님 요청)
                     }
                 }
             } catch (e) { }
