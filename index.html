@@ -2456,6 +2456,21 @@
         function getDongGroupName(item) {
             const zone = findCustomZoneName(item.address);
             if (zone) return zone;
+            /* [신규 2026-10-26] 한 동짜리 아파트 (사장님 지적 — 동이 1동뿐이면 주소에 동이 없어 비번을 못 찾았다).
+               주소에 동이 안 적혀 있고(101동·101-202 꼴이 없음), 그 아파트에 적어 둔 동이 딱 하나면 그 동으로 본다.
+               예전엔 '1203호'는 기타, '1203'은 03동으로 읽혀 01동에 적어 둔 비번과 안 이어졌다 */
+            try {
+                const d = String(item.addressDetail || ''), a = String(item.address || '');
+                const hasDong = /[0-9]+\s*동/.test(d) || /(?:^|[^가-힣a-zA-Z])[0-9]+\s*동/.test(a) || /[0-9]+\s*-\s*[0-9]+/.test(d);
+                if (!hasDong) {
+                    const apt = extractApartmentName(a);
+                    const m = apt && apt !== '기타' ? ((entrancePasswords || {})[apt] || {}) : null;
+                    if (m) {
+                        const dongs = [...new Set(Object.keys(m).map(k => String(k).replace(/_\d+-\d+라인$/, '')))];
+                        if (dongs.length === 1 && dongs[0]) return dongs[0];
+                    }
+                }
+            } catch (e) { }
             return formatDongName(getDongNumber(item.addressDetail, item.address));
         }
 
