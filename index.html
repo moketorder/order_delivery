@@ -1856,8 +1856,10 @@
                     console.warn("로컬 스토리지 캐시 저장 실패 (용량 초과 가능성):", cacheErr);
                 }
 
+                pwdLoadedFresh = false;
                 if (pwdRes && pwdRes.ok) {
                     entrancePasswords = gRemapPwd(await pwdRes.json() || {});
+                    pwdLoadedFresh = true;
                     try {
                         localStorage.setItem('moket_entrance_passwords_cache', JSON.stringify(entrancePasswords));
                     } catch (pwdCacheErr) {
@@ -1970,7 +1972,8 @@
                 buildDateTabs();
 
                 // [신규] 비번이 빈 동·호수는 손님이 적어 둔 공동현관 입력값으로 채운다
-                gAutoFillEntrancePwd().catch(e => console.warn('비번 자동 채우기 실패:', e));
+                // [수정 2026-10-26] 비번 목록을 못 받았으면 돌리지 않는다 — 빈 목록으로 돌면 3~4호 칸이 있어도 '3호' 칸을 새로 만들었다
+                if (pwdLoadedFresh) gAutoFillEntrancePwd().catch(e => console.warn('비번 자동 채우기 실패:', e));
             } catch (e) {
                 console.error(e);
                 showToast("데이터를 로드하지 못했습니다.");
@@ -2481,9 +2484,17 @@
              · 단지 공용 비번은 따로 관리하는 값이라, 있어도 그 호수 칸은 따로 채운다
              · 칸은 쓰던 방식 그대로 만든다 — 예: 1304호면 '13동_4-4라인'
              · 빌라·다세대(기타·묶어 둔 구역)는 집집마다 달라 넣지 않는다 */
+        let pwdLoadedFresh = false;   // 이번에 서버에서 비번 목록을 제대로 받았는지
         async function gAutoFillEntrancePwd() {
             // [수정] 비번 쓰기는 가게 계정만 된다(서버 규칙). 기사 화면에서는 채우지 않고, 가게 화면이 열릴 때 채운다.
             if (!gIsStore()) return 0;
+            /* [수정 2026-10-26] 칸을 만들기 전에 서버의 최신 비번 목록을 다시 받아 그것으로 확인한다 (사장님 지적 —
+               3~4호로 맞춰 둔 동에 '3호' 칸이 또 생겼다). 못 받으면 아무것도 만들지 않는다. */
+            try {
+                const fr = await fetch(`${FIREBASE_DB_URL}entrance_passwords.json?t=${Date.now()}`);
+                if (!fr.ok) return 0;
+                entrancePasswords = gRemapPwd(await fr.json() || {});
+            } catch (e) { return 0; }
             const seen = new Set();
             const jobs = [];
             (rawOrders || []).forEach(it => {
@@ -2500,10 +2511,16 @@
                 if (!dong || dong === '기타') return;
                 const ho = gHoOf(it.addressDetail || '');
                 if (ho == null) return;
-                const covered = gSlotsOf(apt, dong).some(s => String(s.pwd || '').trim()
-                    && (s.from == null || (ho >= s.from && ho <= s.to)));
-                if (covered) return;
-                const key = gSlotKey(dong, ho, ho);
+                /* [수정 2026-10-26] 그 호수를 덮는 칸이 있으면 그 칸에 넣는다 (사장님 지적 — 3~4호 칸을 비번 없이
+                   만들어 뒀는데 3호 비번이 들어오면 3~4호 칸에 들어가지 않고 '3호' 칸이 새로 생겼다).
+                   · 덮는 칸에 비번이 이미 있으면 손대지 않는다
+                   · 덮는 칸이 비어 있으면 그 칸에 채운다
+                   · 덮는 칸이 없을 때만 그 호수 칸을 새로 만든다 */
+                const slots = gSlotsOf(apt, dong);
+                const hit = slots.find(s => s.from != null && ho >= s.from && ho <= s.to)
+                    || slots.find(s => s.from == null);
+                if (hit && String(hit.pwd || '').trim()) return;
+                const key = hit ? hit.key : gSlotKey(dong, ho, ho);
                 const id = `${apt}|${key}`;
                 if (seen.has(id)) return;
                 seen.add(id);
