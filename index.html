@@ -2453,20 +2453,22 @@
            묶어 둔 구역(빌라)이면 구역 이름, 아니면 예전처럼 '101동'.
            '기타' 탭이 동별로 쪼개지던 문제를 여기서 잡는다. (빌라는 '102호'의 첫 숫자를
            동으로 넘겨짚어 102동·203동처럼 엉뚱한 칸이 잔뜩 생겼다) */
+        // [신규 2026-10-26] 주소에 동이 적혀 있나 (101동 · 101-1203 꼴). 없으면 묶기는 01동, 카드 주소는 동 없이
+        function gHasDongWritten(item) {
+            const d = String((item && item.addressDetail) || ''), a = String((item && item.address) || '');
+            return /[0-9]+\s*동/.test(d) || /(?:^|[^가-힣a-zA-Z])[0-9]+\s*동/.test(a) || /[0-9]+\s*-\s*[0-9]+/.test(d);
+        }
         function getDongGroupName(item) {
             const zone = findCustomZoneName(item.address);
             if (zone) return zone;
             /* [신규 2026-10-26] 동이 안 적힌 아파트 주소 (사장님 지적 — 동이 1동뿐이면 주소에 동이 없어 비번을 못 찾았다).
-               주소에 동이 안 적혀 있으면(101동·101-202 꼴이 없음) '동없음' 칸으로 묶는다.
+               주소에 동이 안 적혀 있으면(101동·101-202 꼴이 없음) 01동으로 묶어 01동 비번을 쓴다 (사장님 정함 — 동 없는 곳은 01동으로 관리).
+               카드에 찍는 주소는 적힌 그대로(동 없이) 둔다 — gHasDongWritten 참고.
                예전엔 '1203호'는 기타, '1203'은 03동으로 읽혀 01동에 적어 둔 비번과 안 이어졌다 */
             try {
-                const d = String(item.addressDetail || ''), a = String(item.address || '');
-                const hasDong = /[0-9]+\s*동/.test(d) || /(?:^|[^가-힣a-zA-Z])[0-9]+\s*동/.test(a) || /[0-9]+\s*-\s*[0-9]+/.test(d);
-                if (!hasDong) {
-                    // [수정 2026-10-26] 아파트인데 동이 안 적혀 있으면 '동없음'으로 통일 (사장님 정함 — 01동으로 짐작하면 다른 동이 섞일 수 있다).
-                    //  한 동짜리 아파트는 비번 창·전단지에서 동 이름을 '동없음'으로 만들어 비번을 넣으면 이어진다
-                    const apt = extractApartmentName(a);
-                    if (apt && apt !== '기타') return '동없음';
+                if (!gHasDongWritten(item)) {
+                    const apt = extractApartmentName(String(item.address || ''));
+                    if (apt && apt !== '기타') return '01동';
                 }
             } catch (e) { }
             return formatDongName(getDongNumber(item.addressDetail, item.address));
@@ -4170,7 +4172,7 @@
                 //  getDongNumber가 그 첫 숫자를 동으로 넘겨짚어 '102동 102호'가 되곤 한다.
                 const zoneName = findCustomZoneName(representativeItem.address);
                 // 9999는 '동 없음'을 뜻하는 내부 값이다. 그대로 찍으면 '9999동'이 되므로 빈칸으로 둔다.
-                const hasDong = rawDong && rawDong !== 9999;
+                const hasDong = rawDong && rawDong !== 9999 && gHasDongWritten(representativeItem);   // [수정 2026-10-26] 동이 안 적혔으면 카드에도 동 없이 (사장님 요청 — 예전엔 '1203'을 1203동으로 찍기도 했다)
                 const dongLabel = zoneName ? `${zoneName} ` : (hasDong ? `${rawDong}동 ` : '');
 
                 /* [수정] 아파트를 고르면 이름을 빼고 '102동 1304호'만 찍었다.
@@ -4962,7 +4964,7 @@
             let detail = String(it.addressDetail || '').trim();
             if (isApt) {
                 const rawDong = getDongNumber(it.addressDetail, it.address);
-                const hasDong = rawDong && rawDong !== 9999;
+                const hasDong = rawDong && rawDong !== 9999 && gHasDongWritten(it);   // [수정 2026-10-26] 동이 안 적혔으면 카드에도 동 없이 (사장님 요청 — 예전엔 '1203'을 1203동으로 찍기도 했다)
                 const hoNum = gHoNumOf(it);
                 const dongLabel = zoneName ? zoneName : (hasDong ? `${rawDong}동` : '');
                 const hoLabel = hoNum !== 9999 ? `${hoNum}호` : '';
