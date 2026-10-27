@@ -2848,7 +2848,8 @@
             delete cur.why;   // 이유 칸은 뺐다 — 예전 값도 지운다
             if (parseInt(cur.sur)) delete cur.sur;
             else {
-                const v = Math.min(100000, payDigits(box.querySelector('.a').value));
+                const ia = box.querySelector('.a');
+                const v = Math.min(100000, payDigits(ia.value || ia.dataset.ph || ia.placeholder));   // 쓴 금액이 없으면 회색 안내 숫자
                 if (!v) { showToast('무게 금액을 먼저 적어 주세요.'); return; }
                 cur.sur = v;
             }
@@ -2874,7 +2875,8 @@
             const cur = Object.assign({}, D.h[house] || {});
             if (asgWeatherOf(D, house) > 0) { delete cur.wSet; delete cur.w; cur.noW = true; }
             else {
-                const v = Math.min(100000, payDigits((box.querySelector('.w') || {}).value || ''));
+                const iw = box.querySelector('.w') || {};
+                const v = Math.min(100000, payDigits(iw.value || (iw.dataset && iw.dataset.ph) || iw.placeholder || ''));   // 쓴 금액이 없으면 회색 안내 숫자
                 if (!v) { showToast('날씨 금액을 먼저 적어 주세요.'); return; }
                 delete cur.noW;
                 if (v === (D.weather || 0)) { delete cur.wSet; delete cur.w; }   // 그날 금액과 같으면 그날 값을 따른다
@@ -2888,7 +2890,8 @@
             const p = asgCurParts(); if (!p) return;
             const house = decAttr(el.closest('.asg-sur').getAttribute('data-house'));
             const D = asgDraft(p);
-            if (!(asgWeatherOf(D, house) > 0)) return;
+            if (!(asgWeatherOf(D, house) > 0)) return;   // 꺼진 칸
+            asgFillDefault(el, D.weather || ASG_SUR_DEFAULT);   // 켜진 칸을 비우면 그날 날씨 금액(없으면 500)
             const v = Math.min(100000, payDigits(el.value));
             const cur = Object.assign({}, D.h[house] || {});
             delete cur.noW;
@@ -2899,13 +2902,21 @@
             asgTouch(p);
         }
         // 금액 칸에서 손을 떼면 — 체크된 집이면 바로 그 금액으로 (0이면 체크가 꺼진다). 체크 안 된 집은 다음 체크 때 쓸 금액만
+        // [신규 2026-10-27] 할증 금액 칸을 비우거나 0 으로 하면 기본 숫자를 다시 넣는다 (사장님 요청)
+        function asgFillDefault(el, def) {
+            const v = Math.min(100000, payDigits(el.value));
+            if (v) return v;
+            el.value = (def || 0) ? def.toLocaleString() : '';
+            return def || 0;
+        }
         function asgSurFrom(el) {
             const p = asgCurParts(); if (!p) return;
             const box = el.closest('.asg-sur');
             const house = decAttr(box.getAttribute('data-house'));
             const D = asgDraft(p);
             const cur = Object.assign({}, D.h[house] || {});
-            if (!parseInt(cur.sur)) return;
+            if (!parseInt(cur.sur)) return;   // 꺼진 칸 — 쓴 금액은 켤 때 쓰고, 비우면 회색 안내 숫자가 다시 보인다
+            asgFillDefault(el, ASG_SUR_DEFAULT);   // 켜진 칸을 비우면 500
             const amt = Math.min(100000, payDigits(box.querySelector('.a').value));
             if (amt) cur.sur = amt; else delete cur.sur;
             if (Object.keys(cur).length) D.h[house] = cur; else delete D.h[house];
@@ -2925,9 +2936,10 @@
         }
         function asgWeatherAmtFrom(el) {
             const p = asgCurParts(); if (!p) return;
+            const D = asgDraft(p);
+            if (D.weather) asgFillDefault(el, ASG_SUR_DEFAULT);   // [수정 2026-10-27] 켜진 상태에서 비우면 500 (꺼져 있으면 회색 안내 숫자)
             const amt = Math.min(100000, payDigits(el.value));
             if (amt) asgWeatherAmt = amt;
-            const D = asgDraft(p);
             if (D.weather) { D.weather = amt; asgTouch(p); asgSurOpen(); }   // 체크된 상태면 바로 그 금액으로 (0이면 체크가 꺼진다)
         }
         /* 자동 나누기 — 출근한 사람에게, 아파트 순서대로 단지를 통째로, 건수가 비슷하게 이어서 나눈다.
@@ -3220,7 +3232,7 @@
                     <button type="button" class="pick" onclick="asgWeatherToggle()" aria-pressed="${!!D.weather}">
                         <span class="ck">${D.weather ? '✓' : ''}</span><span class="nm">날씨 할증</span>
                     </button>
-                    <label class="pay-rate"><input type="text" inputmode="numeric" id="asg-w-amt" placeholder="500" aria-label="할증(날씨) 금액" value="${(D.weather || asgWeatherAmt).toLocaleString()}" ${num} onchange="asgWeatherAmtFrom(this)"></label>
+                    <label class="pay-rate"><input type="text" inputmode="numeric" id="asg-w-amt" placeholder="${asgWeatherAmt.toLocaleString()}" aria-label="할증(날씨) 금액" value="${D.weather ? D.weather.toLocaleString() : ''}" ${num} onchange="asgWeatherAmtFrom(this)"></label>
                 </div>
                 <div class="asg-fav-sec">할증(거리) — 아파트마다 기본 단가 · 카드에서 거리를 체크한 집에만 붙어요</div>
                 ${apts.map(a => {
@@ -3262,7 +3274,8 @@
             const cur = Object.assign({}, D.h[house] || {});
             if (cur.distSet) { delete cur.distSet; delete cur.dist; }
             else {
-                const v = Math.min(100000, payDigits(box.querySelector('.d').value));
+                const idd = box.querySelector('.d');
+                const v = Math.min(100000, payDigits(idd.value || idd.dataset.ph || idd.placeholder));   // 쓴 금액이 없으면 회색 안내 숫자
                 if (!v) { showToast('거리 금액을 먼저 적어 주세요.'); return; }
                 cur.distSet = true; cur.dist = v;
             }
@@ -3274,9 +3287,11 @@
             const p = asgCurParts(); if (!p) return;
             const box = el.closest('.asg-sur');
             const house = decAttr(box.getAttribute('data-house'));
+            const hx = asgDayHouses(p).find(x => x.house === house);
             const D = asgDraft(p);
             const cur = Object.assign({}, D.h[house] || {});
-            if (!cur.distSet) return;
+            if (!cur.distSet) return;   // 꺼진 칸
+            asgFillDefault(el, asgDistDefault(hx ? hx.apt : '') || ASG_SUR_DEFAULT);   // 켜진 칸을 비우면 아파트 기본 단가(없으면 500)
             const v = Math.min(100000, payDigits(el.value));
             if (v) cur.dist = v; else { delete cur.distSet; delete cur.dist; }
             if (Object.keys(cur).length) D.h[house] = cur; else delete D.h[house];
@@ -3303,14 +3318,14 @@
                     // [신규 2026-10-27] 그날 할증(날씨)가 있으면 '날씨' 단추 — 처음엔 켜져 있고, 누르면 이 집만 빠진다 (사장님 요청)
                     // [수정 2026-10-27] 날씨도 집마다 — 그날 날씨 할증이 없어도 켤 수 있고, 금액도 집마다 고친다 (asgWeatherOf)
                     const wv = asgWeatherOf(D, house), wOn = wv > 0, mOn = !!parseInt(a.sur);
-                    const wShow = wv || D.weather || ASG_SUR_DEFAULT;   // 꺼져 있으면 켤 때 쓸 금액 (그날 날씨 금액 → 500)
                     /* [수정 2026-10-27] 칸 안의 칸을 없앴다 (사장님 요청) — 테두리 없이 한 줄: ☐ 날씨 500 · ☐ 무게 500 · ☐ 거리 1,000.
                        이름(네모)을 누르면 켜고 끄고, 무게·거리 금액은 밑줄 친 숫자를 눌러 고친다. 날씨 금액은 그날 정한 값(여기서 못 고침) */
                     const item = (cls, on, onclick, label, val) => `<span class="asg-it${on ? ' on' : ''}"><button type="button" class="t" onclick="${onclick}" aria-pressed="${on}"><i>${on ? '✓' : ''}</i>${label}</button>${val}</span>`;
                     return `<div class="asg-sur asg-sur3" data-house="${encAttr(house)}">
-                        ${item('w', wOn, 'asgWeatherHouse(this)', '날씨', `<input type="text" inputmode="numeric" class="w" aria-label="할증(날씨) 금액" value="${wShow.toLocaleString()}" ${num} onchange="asgWeatherHouseAmt(this)">`)}
-                        ${item('m', mOn, 'asgSurToggle(this)', '무게', `<input type="text" inputmode="numeric" class="a" aria-label="할증(무게) 금액" value="${(parseInt(a.sur) || ASG_SUR_DEFAULT).toLocaleString()}" ${num} onchange="asgSurFrom(this)">`)}
-                        ${item('d', on, 'asgDistToggle(this)', '거리', `<input type="text" inputmode="numeric" class="d" placeholder="0" aria-label="할증(거리) 금액" value="${dv ? dv.toLocaleString() : ''}" ${num} onchange="asgDistFrom(this)">`)}
+                        ${/* [수정 2026-10-27] 꺼진 칸은 금액이 회색 안내 숫자(placeholder) — 회색으로 있다가 글씨를 쓰면 사라지고, 다 지우면 다시 보인다 (사장님 요청 — 보통 안내 글씨처럼). 켜진 칸은 진짜 금액(주황) */''}
+                        ${item('w', wOn, 'asgWeatherHouse(this)', '날씨', `<input type="text" inputmode="numeric" class="w" aria-label="할증(날씨) 금액" placeholder="${(D.weather || ASG_SUR_DEFAULT).toLocaleString()}" value="${wOn ? wv.toLocaleString() : ''}" ${num} onchange="asgWeatherHouseAmt(this)">`)}
+                        ${item('m', mOn, 'asgSurToggle(this)', '무게', `<input type="text" inputmode="numeric" class="a" aria-label="할증(무게) 금액" placeholder="${ASG_SUR_DEFAULT.toLocaleString()}" value="${mOn ? parseInt(a.sur).toLocaleString() : ''}" ${num} onchange="asgSurFrom(this)">`)}
+                        ${item('d', on, 'asgDistToggle(this)', '거리', `<input type="text" inputmode="numeric" class="d" aria-label="할증(거리) 금액" placeholder="${(asgDistDefault(apt) || ASG_SUR_DEFAULT).toLocaleString()}" value="${on ? dv.toLocaleString() : ''}" ${num} onchange="asgDistFrom(this)">`)}
                     </div>`;
                 })()}
             </div>`;
