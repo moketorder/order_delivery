@@ -3131,8 +3131,15 @@
             /* [수정 2026-10-27] 한 표(칸 하나 = 52px 쯤). 한 줄에 다 들어가면 모든 칸을 고르게 늘리고,
                넘치면 출근 · 할증은 맨 윗줄 오른쪽 두 칸만 쓰고 나머지 사람 칸은 아랫줄로 (사장님 요청 — 두 줄을 합쳐 길게 하지 말 것) */
             const items = [...(cells.length ? cells : ['<div class="none"><span>출근자</span><b>✕</b></div>']), `<div class="un"><span>미배정</span><b>${un}</b></div>`];
+            // [신규 2026-10-27] 할증 칸 — 오늘 할증 붙은 집 수 · 할증 합 (날씨 · 무게 · 거리 모두, 사장님 요청)
+            const sumSur = { n: 0, a: 0 };
+            houses.forEach(x => {
+                const a = D.h[x.house] || {};
+                // [수정 2026-10-27] 건수는 종류마다 한 건 (날씨 · 무게 · 거리 각각 — 사장님 요청)
+                [asgWeatherOf(D, x.house), parseInt(a.sur) || 0, a.distSet ? (parseInt(a.dist) || 0) : 0].forEach(v => { if (v > 0) { sumSur.n++; sumSur.a += v; } });
+            });
             const btnHtml = `<button type="button" class="btn" onclick="asgShiftOpen()"><span>출근</span><b>${onN}명</b></button>
-                <button type="button" class="btn${D.weather ? ' on' : ''}" onclick="asgSurOpen()"><span>할증</span><b>${D.weather ? D.weather.toLocaleString() : '설정'}</b></button>`;
+                <button type="button" class="btn${sumSur.a ? ' on' : ''}" onclick="asgSurOpen()"><span>할증${sumSur.n ? ` ${sumSur.n}건` : ''}</span><b>${sumSur.a ? sumSur.a.toLocaleString() : '설정'}</b></button>`;
             const W = (band.clientWidth || (document.querySelector('.container') || {}).clientWidth || 340) - 26;   // 띠 안쪽 너비
             const cols = Math.max(4, Math.floor(W / 52));
             const one = items.length + 2 <= cols;
@@ -3194,7 +3201,20 @@
             Object.keys(asgDist).forEach(add);
             const today = new Set(asgDayHouses(p).map(x => x.apt));
             document.getElementById('asg-sur-title').textContent = `할증 · ${p.label}`;
+            // [신규 2026-10-27] 맨 위 — 오늘 할증 세부 (종류마다 건수 · 금액, 합계). 카드에서 집마다 넣은 것까지 (사장님 요청)
+            const sb = { w: { n: 0, a: 0 }, m: { n: 0, a: 0 }, d: { n: 0, a: 0 } };
+            asgDayHouses(p).forEach(x => {
+                const a = D.h[x.house] || {};
+                [['w', asgWeatherOf(D, x.house)], ['m', parseInt(a.sur) || 0], ['d', a.distSet ? (parseInt(a.dist) || 0) : 0]]
+                    .forEach(([k, v]) => { if (v > 0) { sb[k].n++; sb[k].a += v; } });
+            });
+            const tn = sb.w.n + sb.m.n + sb.d.n, ta = sb.w.a + sb.m.a + sb.d.a;
+            const sumBox = `<div class="asg-surbox">
+                ${[['w', '날씨'], ['m', '무게'], ['d', '거리']].map(([k, t]) => `<div><span>${t}</span><b>${sb[k].a ? sb[k].a.toLocaleString() : '–'}</b><em>${sb[k].n}건</em></div>`).join('')}
+                <div class="tot"><span>합계</span><b>${ta ? ta.toLocaleString() : '–'}</b><em>${tn}건</em></div>
+            </div>`;
             document.getElementById('asg-sur-body').innerHTML = `
+                ${sumBox}
                 <div class="asg-fav-sec">할증(날씨) — 체크하면 오늘 모든 집에</div>
                 <div class="asg-dist-row asg-w${D.weather ? ' on' : ''}">
                     <button type="button" class="pick" onclick="asgWeatherToggle()" aria-pressed="${!!D.weather}">
@@ -3539,6 +3559,8 @@
             payDeliveriesOf(r).forEach(x => { const v = (x.ww || 0) + (x.hs || 0); if (v) out[x.dd] = (out[x.dd] || 0) + v; });
             return out;
         }
+        // [신규 2026-10-27] 배달 한 건의 할증 건수 — 날씨 · 무게 · 거리 중 붙은 종류 수 (사장님 요청: 할증 건수는 종류별 건수의 합)
+        function paySurItems(x) { return ((x.ww || 0) > 0 ? 1 : 0) + ((x.hw || 0) > 0 ? 1 : 0) + ((x.hd || 0) > 0 ? 1 : 0); }
         function paySurBreak(list) {
             const b = { w: { n: 0, a: 0 }, m: { n: 0, a: 0 }, d: { n: 0, a: 0 } };
             (list || []).forEach(x => {
@@ -3638,7 +3660,7 @@
             /* [신규 2026-10-27] 할증 칸을 누르면 그 줄 밑에 날씨 · 무게 · 거리 (사장님 요청). 오늘 전에 한 지급은 종류가 안 남아 있어 '종류 기록 없음' */
             // [수정 2026-10-27] 할증 칸 — 금액 밑에 할증 붙은 건수 (사장님 요청)
             const surN = {}; let surNLeft = 0;
-            payCover(r).forEach(x => { if ((x.ww || 0) + (x.hs || 0) > 0) { if (x.p) surN[x.p.id] = (surN[x.p.id] || 0) + 1; else surNLeft++; } });
+            payCover(r).forEach(x => { const k = paySurItems(x); if (k) { if (x.p) surN[x.p.id] = (surN[x.p.id] || 0) + k; else surNLeft += k; } });   // 종류마다 한 건
             const surCell = (key, amt, n) => parseInt(amt)
                 ? `<span class="c s tap" role="button" tabindex="0" onclick="payHistSurToggle('${encAttr(key)}')">${won(amt)} ${payHistSurOpen.has(key) ? '▴' : '▾'}${n ? `<small class="pay-sur-n">${n}건</small>` : ''}</span>`
                 : `<span class="c s">–</span>`;
@@ -3871,7 +3893,7 @@
                 ? `<span class="pay-pill wait">미지급 ${c.left}건</span>`
                 : (c.pay.list.length ? `<span class="pay-pill">지급 완료</span>` : '');   // 날짜는 아래 지급 기록 표의 '지급일' 칸에
             // [수정 2026-10-27] 달력을 맨 위로 (사장님 요청) — 달 넘기기 · 달력 → 요약 · 할증 → 지급 기록
-            const surN = payDeliveriesOf(mine).filter(x => (x.ww || 0) > 0 || x.hs > 0).length;   // 할증 붙은 건수
+            const surN = payDeliveriesOf(mine).reduce((s, x) => s + paySurItems(x), 0);   // [수정 2026-10-27] 할증 건수 — 종류마다 한 건
             // [수정 2026-10-27] 가게 정산처럼 맨 위에 요약 (총 건수 · 총액 · 미지급) — 사장님 요청. 총액은 아래 줄에서 뺐다
             const known = c.rate || c.pay.list.length;
             body.innerHTML = `
@@ -3961,7 +3983,7 @@
                 const sl = list.filter(x => x.sur > 0), sa = sl.reduce((s, x) => s + x.sur, 0);
                 // [수정 2026-10-27] 할증은 한 줄, 누르면 날씨 · 무게 · 거리로 펼친다 (사장님 요청)
                 const bk = paySurBreak(list);
-                const sur = sa ? `<div class="pay-dd-row sur tap" role="button" tabindex="0" onclick="payDdSurOpen=!payDdSurOpen; payRender();"><span>할증<small>${sl.length}건 ${payDdSurOpen ? '▴' : '▾'}</small></span><b>${sa.toLocaleString()}원</b><em></em></div>
+                const sur = sa ? `<div class="pay-dd-row sur tap" role="button" tabindex="0" onclick="payDdSurOpen=!payDdSurOpen; payRender();"><span>할증<small>${sl.reduce((s, x) => s + paySurItems(x), 0)}건 ${payDdSurOpen ? '▴' : '▾'}</small></span><b>${sa.toLocaleString()}원</b><em></em></div>
                     ${payDdSurOpen ? [['w', '날씨'], ['m', '무게'], ['d', '거리']].filter(([k]) => bk[k].a > 0)
                         .map(([k, t]) => `<div class="pay-dd-row brk"><span>${t}<small>${bk[k].n}건</small></span><b>${bk[k].a.toLocaleString()}원</b><em></em></div>`).join('') : ''}` : '';
                 const sub = list.reduce((s, x) => s + x.rate + x.sur, 0);
@@ -6553,6 +6575,15 @@
         .asg-fld.on { border-color:#ea580c; }
         .asg-fld.on .t { background:#fff7ed; color:#c2410c; border-right-color:#fed7aa; }
         .asg-fld.on .t i { border-color:#ea580c; background:#ea580c; }
+        /* [신규 2026-10-27] 할증 창 맨 위 — 오늘 할증 세부 (날씨 · 무게 · 거리 · 합계) */
+        .asg-surbox { display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); border:1px solid #fed7aa; border-radius:10px; overflow:hidden; margin-bottom:4px; }
+        .asg-surbox > div { padding:7px 4px; text-align:center; background:#fff; }
+        .asg-surbox > div + div { border-left:1px solid #fed7aa; }
+        .asg-surbox span { display:block; font-size:11.5px; font-weight:800; color:#64748b; }
+        .asg-surbox b { display:block; font-size:15px; font-weight:900; color:#c2410c; font-variant-numeric:tabular-nums; }
+        .asg-surbox em { display:block; font-style:normal; font-size:11px; font-weight:800; color:#94a3b8; }
+        .asg-surbox .tot { background:#fff7ed; }
+        .asg-surbox .tot span { color:#c2410c; }
         /* [신규 2026-10-27] 할증 창 줄 — 이름 · 금액 칸 */
         #asg-sur-body > * { flex-shrink:0; }
         .asg-dist-row { display:flex; align-items:center; gap:10px; min-height:48px; padding:0 12px; border:1.5px solid #e2e8f0; border-radius:10px; background:#fff; }
