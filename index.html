@@ -162,6 +162,9 @@
         /* [신규 2026-10-24] 날짜 단추 + 휠 */
         .date-pick-btn { flex:1; min-width:0; height:42px; padding:0 12px 0 14px; border:1px solid #cbd5e1; border-radius:var(--radius-sub); background:#fff; color:var(--text-main); font:inherit; font-size:15px; font-weight:900; display:flex; align-items:center; justify-content:space-between; gap:8px; cursor:pointer; }
         .date-pick-btn svg { flex:0 0 auto; color:#64748b; }
+        /* [신규 2026-10-27] 배정 화면이면 날짜 바로 옆에 '배정 중' (주황) */
+        .date-asg-tag { margin-right:auto; flex:0 0 auto; font-style:normal; font-size:12px; font-weight:900; color:#fff; background:#ea580c; padding:3px 8px; border-radius:999px; }
+        .date-asg-tag[hidden] { display:none; }
         .date-today-btn { flex:0 0 auto; height:42px; padding:0 14px; border:1px solid #cbd5e1; border-radius:var(--radius-sub); background:#fff; color:#475569; font:inherit; font-size:13.5px; font-weight:800; cursor:pointer; }
         .date-today-btn.on { background:var(--text-main); border-color:var(--text-main); color:#fff; }   /* 오늘을 보고 있을 때 */
         .search-date-band { padding:6px 16px; background:#0f172a; color:#fff; font-size:13px; font-weight:800; letter-spacing:-0.2px; }   /* [신규 2026-10-24] 검색 결과 카드의 배달 날짜 */
@@ -1077,6 +1080,8 @@
         <div style="display:flex; gap:8px; align-items:center; margin-bottom:8px;">
             <button type="button" id="date-pick-btn" class="date-pick-btn" onclick="openDateWheel()">
                 <span id="date-pick-label">날짜</span>
+                <em id="date-asg-tag" class="date-asg-tag" hidden>배정 중</em><!-- [신규 2026-10-27] 배정 화면일 때만 -->
+
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
             </button>
             <button type="button" id="date-today-btn" class="date-today-btn" onclick="gPickDate(null, null, true)">오늘</button>
@@ -2411,7 +2416,8 @@
                지금 전체를 보고 있는지 알기 어려웠다. 누르면 그날 배달을 모두 보여 준다. */
             const allAptBtn = document.createElement('button');
             allAptBtn.className = `btn-select apt-btn ${activeApartment === "전체" ? 'active' : ''}`;
-            allAptBtn.innerHTML = `<span style="display:block; line-height:1.15;">전체</span><span style="display:block; font-size:11px; font-weight:800; line-height:1.15; opacity:0.85;">${getDeliveryProgressText(filtered)}</span>`;
+            allAptBtn.innerHTML = `<span style="display:block; line-height:1.15;">전체</span><span style="display:block; font-size:11px; font-weight:800; line-height:1.15; opacity:0.85;">${asgOn ? asgAptLabel(filtered) : getDeliveryProgressText(filtered)}</span>`;   // [수정 2026-10-27] 배정 중이면 미배정 수
+            aptContainer.classList.toggle('asg-mode', asgOn);
             allAptBtn.onclick = () => {
                 activeApartment = "전체";
                 activeDong = "전체";
@@ -2667,9 +2673,47 @@
         let asgMonth = {};          // { 'YYYY-MM': { DD: 하루 } }  받아 둔 달 (저장된 것)
         const _asgLoading = {};     // { 'YYYY-MM': 받는 중인 약속 }
         const asgFailed = {};       // 못 받은 달 (규칙 게시 전 등)
+        const asgWeather = {};      // { 'YYYY-MM': { DD: 건당 할증(날씨) } }  카드 딱지용
         let asgOn = false;          // 배정 화면인가
         let asgDrafts = {};         // { 'YYYY-MM/DD': 고치는 중인 하루 }  저장 전
         let asgDirty = {};          // { 'YYYY-MM/DD': true }  저장 안 한 날
+        /* [신규 2026-10-27] 출근 즐겨찾기 — 자주 나오는 사람. 배정 띠에 이 사람들만 먼저 보인다 (사장님 요청).
+             settings / rider_fav = { uid: true }  (가게만 읽고 쓰는 자리라 규칙은 그대로) */
+        let asgFav = {};
+        /* [신규 2026-10-27] 마지막으로 저장한 출근자 — 저장 안 한 날을 열면 이 사람들로 출근이 켜져 있다.
+             settings / rider_last_shift = { uid: 이름 }  (배정 저장할 때 같이 쓴다) */
+        let asgLastShift = {};
+        async function asgLoadLastShift() {
+            try {
+                const r = await fetch(`${FIREBASE_DB_URL}settings/rider_last_shift.json`);
+                asgLastShift = r.ok ? ((await r.json()) || {}) : {};
+            } catch (e) { asgLastShift = {}; }
+        }
+        /* [신규 2026-10-27] 할증(거리) — 단지마다 기본 단가 + 카드에서 '거리'를 체크한 집에만 붙는다 (사장님 정함, 아래 asgDistOf).
+             단지 기본: settings / rider_dist = { 단지키: 금액 }  (가게만 — 배정 화면에서만 쓴다)
+             그날 실제 금액: rider_assign / 달 / 날 / h / 집키 / dist  (저장할 때 집마다 적어 둔다 → 기사·정산은 이것만 본다.
+               나중에 단지 기본을 바꿔도 지난 날 금액은 안 바뀐다). 집에서 직접 고친 것은 distSet:true 로 표시해 단지 기본을 따르지 않는다. */
+        let asgDist = {};
+        function asgDistKey(apt) { return String(apt || '').replace(/[.#$\[\]\/]/g, '_'); }
+        async function asgLoadDist() {
+            try {
+                const r = await fetch(`${FIREBASE_DB_URL}settings/rider_dist.json`);
+                asgDist = r.ok ? ((await r.json()) || {}) : {};
+            } catch (e) { asgDist = {}; }
+        }
+        /* [수정 2026-10-27] 그 집 할증(거리) — 카드에서 '거리'를 체크한 집에만 붙는다 (사장님 정함).
+           단지 기본 단가는 체크할 때 처음 들어가는 금액일 뿐, 단지 집 전부에 붙지 않는다. */
+        function asgDistOf(D, house, apt) {
+            const a = D.h[house] || {};
+            return a.distSet ? (parseInt(a.dist) || 0) : 0;
+        }
+        function asgDistDefault(apt) { return parseInt(asgDist[asgDistKey(apt)]) || 0; }
+        async function asgLoadFav() {
+            try {
+                const r = await fetch(`${FIREBASE_DB_URL}settings/rider_fav.json`);
+                asgFav = r.ok ? ((await r.json()) || {}) : {};
+            } catch (e) { asgFav = {}; }
+        }
 
         // 날짜 탭에서 고른 하루 ('전체'면 null)
         function asgCurParts() {
@@ -2684,6 +2728,11 @@
             if (!month || asgMonth[month]) return Promise.resolve();
             if (_asgLoading[month]) return _asgLoading[month];
             return _asgLoading[month] = (async () => {
+                // [신규 2026-10-27] 그 달 할증(날씨)도 같이 받는다 — 카드마다 '할증(날씨)' 딱지 (사장님 선택). 못 받아도 배정은 그대로
+                try {
+                    const w = await fetch(`${FIREBASE_DB_URL}rider_surcharge/${month}.json`);
+                    asgWeather[month] = w.ok ? ((await w.json()) || {}) : {};
+                } catch (e) { asgWeather[month] = {}; }
                 try {
                     const r = await fetch(`${FIREBASE_DB_URL}rider_assign/${month}.json`);
                     if (!r.ok) throw new Error('서버 응답 ' + r.status);
@@ -2714,7 +2763,12 @@
         function asgDraft(p) {
             if (!asgDrafts[p.key]) {
                 const s = (asgMonth[p.month] || {})[p.day] || {};
-                asgDrafts[p.key] = JSON.parse(JSON.stringify({ shift: s.shift || {}, h: s.h || {} }));
+                // [수정 2026-10-27] 그날 저장된 출근이 없으면 마지막으로 저장한 출근자를 그대로 가져온다 (사장님 요청 — 날짜를 넘겨도 출근자 유지)
+                const hasRider = Object.values(s.h || {}).some(a => a && a.rider);   // 담당을 저장해 둔 날이면 그날 출근 그대로
+                const shift0 = (s.shift && Object.keys(s.shift).length) ? s.shift : (hasRider ? {} : asgLastShift);
+                asgDrafts[p.key] = JSON.parse(JSON.stringify({ shift: shift0 || {}, h: s.h || {} }));
+                // [신규 2026-10-27] 그날 할증(날씨)도 배정에서 정한다 (정산에서 옮겨 옴). 자리는 예전대로 rider_surcharge
+                asgDrafts[p.key].weather = parseInt((asgWeather[p.month] || {})[p.day]) || 0;
             }
             return asgDrafts[p.key];
         }
@@ -2747,7 +2801,7 @@
             closeSettings();
             asgOn = true;
             showLoader('배정 불러오는 중...');
-            try { await Promise.all([dlogLoadStaff(), asgEnsure(p.month)]); } finally { hideLoader(); }
+            try { await Promise.all([dlogLoadStaff(), asgEnsure(p.month), asgLoadFav(), asgLoadDist(), asgLoadLastShift()]); } finally { hideLoader(); }
             renderFilteredData();
             window.scrollTo({ top: 0, behavior: 'smooth' });
         }
@@ -2757,42 +2811,124 @@
             renderFilteredData();
         }
         function asgTouch(p) { asgDirty[p.key] = true; renderFilteredData(); }
-        // 출근 켜기·끄기
-        function asgToggleShift(uidEnc) {
-            const p = asgCurParts(); if (!p) return;
-            const D = asgDraft(p), uid = decAttr(uidEnc);
-            if (D.shift[uid]) delete D.shift[uid]; else D.shift[uid] = asgNameOf(uid);
-            asgTouch(p);
-        }
-        // 집 하나의 담당을 바꾼다 (할증은 그대로)
+        // 집 하나의 담당을 바꾼다 (할증은 그대로). [수정 2026-10-27] 이미 그 사람이면 다시 눌렀을 때 배정을 푼다 (사장님 요청)
         function asgSet(houseEnc, uidEnc) {
             const p = asgCurParts(); if (!p) return;
             const D = asgDraft(p), house = decAttr(houseEnc), uid = decAttr(uidEnc);
-            const cur = D.h[house] || {};
-            D.h[house] = Object.assign({}, cur, { rider: uid, riderName: asgNameOf(uid) });
+            const cur = Object.assign({}, D.h[house] || {});
+            if (cur.rider === uid) { delete cur.rider; delete cur.riderName; }
+            else Object.assign(cur, { rider: uid, riderName: asgNameOf(uid) });
+            if (Object.keys(cur).length) D.h[house] = cur; else delete D.h[house];
             asgTouch(p);
         }
-        // 아파트를 통째로 (그날 아직 안 끝난 집만)
-        function asgSetApt(aptEnc, uidEnc) {
+        // 아파트를 통째로 (그날 아직 안 끝난 집만). [수정 2026-10-27] dong 을 주면 그 동만 통째로 (사장님 요청)
+        function asgSetApt(aptEnc, uidEnc, dongEnc) {
             const p = asgCurParts(); if (!p) return;
-            const D = asgDraft(p), apt = decAttr(aptEnc), uid = decAttr(uidEnc);
-            asgDayHouses(p).filter(x => x.apt === apt && !x.done).forEach(x => {
-                D.h[x.house] = Object.assign({}, D.h[x.house] || {}, { rider: uid, riderName: asgNameOf(uid) });
+            const D = asgDraft(p), apt = decAttr(aptEnc), uid = decAttr(uidEnc), dong = decAttr(dongEnc || '');
+            // [수정 2026-10-27] apt 가 '전체'면 그날 모든 집 (아파트 '전체'에서도 통째로 — 사장님 요청)
+            const scope = asgDayHouses(p).filter(x => (apt === '전체' || x.apt === apt) && !x.done && (!dong || getDongGroupName(x.rows[0]) === dong));
+            // [신규 2026-10-27] 이미 모두 이 사람이면(주황 단추) 다시 눌렀을 때 배정을 푼다 (사장님 요청)
+            const off = scope.length && scope.every(x => (D.h[x.house] || {}).rider === uid);
+            scope.forEach(x => {
+                const cur = Object.assign({}, D.h[x.house] || {});
+                if (off) { delete cur.rider; delete cur.riderName; }
+                else Object.assign(cur, { rider: uid, riderName: asgNameOf(uid) });
+                if (Object.keys(cur).length) D.h[x.house] = cur; else delete D.h[x.house];
             });
             asgTouch(p);
         }
-        // 할증 칸에서 손을 떼면 — 금액이 0 이면 할증을 뺀다
+        /* [수정 2026-10-27] 할증(무게)도 거리처럼 체크식 — 금액 칸엔 기본 500원(흐린 글씨), '무게'를 누르면 그 금액으로 붙는다 (사장님 요청) */
+        const ASG_SUR_DEFAULT = 500;
+        function asgSurToggle(el) {
+            const p = asgCurParts(); if (!p) return;
+            const box = el.closest('.asg-sur');
+            const house = decAttr(box.getAttribute('data-house'));
+            const D = asgDraft(p);
+            const cur = Object.assign({}, D.h[house] || {});
+            delete cur.why;   // 이유 칸은 뺐다 — 예전 값도 지운다
+            if (parseInt(cur.sur)) delete cur.sur;
+            else {
+                const v = Math.min(100000, payDigits(box.querySelector('.a').value));
+                if (!v) { showToast('무게 금액을 먼저 적어 주세요.'); return; }
+                cur.sur = v;
+            }
+            if (Object.keys(cur).length) D.h[house] = cur; else delete D.h[house];
+            asgTouch(p);
+        }
+        /* [수정 2026-10-27] 집마다 할증(날씨) — 그날 날씨 할증이 없어도 켤 수 있다 (사장님 요청).
+             wSet:true, w:금액  → 이 집은 이 금액 (켜짐)
+             noW:true          → 그날 날씨 할증이 있어도 이 집은 뺌
+             둘 다 없으면       → 그날 날씨 할증 (배정 띠의 할증 창에서 정한 값, 없으면 0) */
+        function asgWeatherOf(D, house) {
+            const a = D.h[house] || {};
+            if (a.wSet) return parseInt(a.w) || 0;
+            if (a.noW) return 0;
+            return D.weather || 0;
+        }
+        // 카드의 '날씨' 누르기 — 켜져 있으면 끄고(noW), 꺼져 있으면 금액 칸 값으로 켠다(wSet)
+        function asgWeatherHouse(el) {
+            const p = asgCurParts(); if (!p) return;
+            const box = el.closest('.asg-sur');
+            const house = decAttr(box.getAttribute('data-house'));
+            const D = asgDraft(p);
+            const cur = Object.assign({}, D.h[house] || {});
+            if (asgWeatherOf(D, house) > 0) { delete cur.wSet; delete cur.w; cur.noW = true; }
+            else {
+                const v = Math.min(100000, payDigits((box.querySelector('.w') || {}).value || ''));
+                if (!v) { showToast('날씨 금액을 먼저 적어 주세요.'); return; }
+                delete cur.noW;
+                if (v === (D.weather || 0)) { delete cur.wSet; delete cur.w; }   // 그날 금액과 같으면 그날 값을 따른다
+                else { cur.wSet = true; cur.w = v; }
+            }
+            if (Object.keys(cur).length) D.h[house] = cur; else delete D.h[house];
+            asgTouch(p);
+        }
+        // 날씨 금액 칸 — 켜진 집이면 바로 그 금액으로 (0이면 꺼진다)
+        function asgWeatherHouseAmt(el) {
+            const p = asgCurParts(); if (!p) return;
+            const house = decAttr(el.closest('.asg-sur').getAttribute('data-house'));
+            const D = asgDraft(p);
+            if (!(asgWeatherOf(D, house) > 0)) return;
+            const v = Math.min(100000, payDigits(el.value));
+            const cur = Object.assign({}, D.h[house] || {});
+            delete cur.noW;
+            if (!v) cur.noW = true, delete cur.wSet, delete cur.w;
+            else if (v === (D.weather || 0)) { delete cur.wSet; delete cur.w; }
+            else { cur.wSet = true; cur.w = v; }
+            if (Object.keys(cur).length) D.h[house] = cur; else delete D.h[house];
+            asgTouch(p);
+        }
+        // 금액 칸에서 손을 떼면 — 체크된 집이면 바로 그 금액으로 (0이면 체크가 꺼진다). 체크 안 된 집은 다음 체크 때 쓸 금액만
         function asgSurFrom(el) {
             const p = asgCurParts(); if (!p) return;
             const box = el.closest('.asg-sur');
             const house = decAttr(box.getAttribute('data-house'));
-            const amt = payDigits(box.querySelector('.a').value);
             const D = asgDraft(p);
             const cur = Object.assign({}, D.h[house] || {});
-            delete cur.why;   // [수정 2026-10-27] 이유 칸은 뺐다 (사장님 요청) — 예전 값도 지운다
+            if (!parseInt(cur.sur)) return;
+            const amt = Math.min(100000, payDigits(box.querySelector('.a').value));
             if (amt) cur.sur = amt; else delete cur.sur;
             if (Object.keys(cur).length) D.h[house] = cur; else delete D.h[house];
             asgTouch(p);
+        }
+        /* [수정 2026-10-27] 할증(날씨) — 체크하면 적용, 기본 500원 · 금액 칸에서 고칠 수 있다 (사장님 요청).
+           체크를 꺼도 금액 칸 값은 남아 다시 켜면 그 금액. 저장을 눌러야 서버에 남는다. 10만 원까지 (서버 규칙) */
+        let asgWeatherAmt = 500;
+        function asgWeatherToggle() {
+            const p = asgCurParts(); if (!p) return;
+            const D = asgDraft(p);
+            const typed = payDigits((document.getElementById('asg-w-amt') || {}).value || '');
+            if (typed) asgWeatherAmt = Math.min(100000, typed);
+            D.weather = D.weather ? 0 : asgWeatherAmt;
+            asgTouch(p);
+            asgSurOpen();   // 창을 다시 그려 체크 모양을 바꾼다
+        }
+        function asgWeatherAmtFrom(el) {
+            const p = asgCurParts(); if (!p) return;
+            const amt = Math.min(100000, payDigits(el.value));
+            if (amt) asgWeatherAmt = amt;
+            const D = asgDraft(p);
+            if (D.weather) { D.weather = amt; asgTouch(p); asgSurOpen(); }   // 체크된 상태면 바로 그 금액으로 (0이면 체크가 꺼진다)
         }
         /* 자동 나누기 — 출근한 사람에게, 아파트 순서대로 단지를 통째로, 건수가 비슷하게 이어서 나눈다.
            이미 배달이 끝난 집은 그대로 둔다. 할증은 집에 붙어 있어 그대로 따라간다. */
@@ -2800,7 +2936,7 @@
             const p = asgCurParts(); if (!p) return;
             const D = asgDraft(p);
             const ppl = asgPeople().filter(s => D.shift[s.uid]);
-            if (!ppl.length) { showToast('출근한 사람을 먼저 눌러 주세요.'); return; }
+            if (!ppl.length) { showToast('위 출근 단추에서 사람을 먼저 골라 주세요.'); return; }
             const houses = asgDayHouses(p).filter(x => !x.done);
             if (!houses.length) { showToast('나눌 배달이 없습니다.'); return; }
             const byApt = {};
@@ -2823,9 +2959,104 @@
             asgTouch(p);
             showToast(`${ppl.length}명에게 ${houses.length}집을 나눴어요. 저장을 눌러야 기사에게 보여요.`);
         }
+        /* [수정 2026-10-27] 출근 창 — 배정 띠의 '출근' 단추로 연다 (사장님 설명대로 다시 만듦).
+           사람 줄을 누르면 그날 출근 켜기·끄기(고치는 중인 배정에 들어가고, 띠의 '저장'으로 서버에 남는다).
+           줄 오른쪽 ★ 는 즐겨찾기 — 누르면 바로 서버(settings/rider_fav)에 저장되고, ★ 사람은 늘 맨 위 '즐겨찾기' 묶음에 보인다.
+           위 '이름 찾기'로 거른다. 검색 칸은 한 번만 그리고 목록만 다시 그려 치는 중에 안 지워진다. */
+        function asgShiftOpen() {
+            const p = asgCurParts(); if (!p) return;
+            document.getElementById('asg-fav-title').textContent = `출근 · ${p.label}`;
+            document.getElementById('asg-fav-body').innerHTML = `
+                <input type="search" id="asg-fav-q" class="asg-fav-q" placeholder="이름 찾기" aria-label="이름 찾기" autocomplete="off" oninput="asgShiftRender()">
+                <div id="asg-fav-list" style="display:flex; flex-direction:column; gap:6px;"></div>`;
+            asgShiftRender();
+            document.getElementById('asg-fav-modal').style.display = 'flex';
+        }
+        function asgShiftClose() {
+            document.getElementById('asg-fav-modal').style.display = 'none';
+            renderFilteredData();
+        }
+        function asgShiftRender() {
+            const p = asgCurParts(); if (!p) return;
+            const D = asgDraft(p);
+            const me = window.gStaffMe || {};
+            const role = uid => uid === me.uid ? '나' : (((dlogStaff || []).find(s => s.uid === uid) || {}).role === 'store' ? '가게' : '기사');
+            const cnt = {};
+            Object.values(D.h).forEach(a => { if (a && a.rider) cnt[a.rider] = (cnt[a.rider] || 0) + 1; });
+            const q = String((document.getElementById('asg-fav-q') || {}).value || '').trim().toLowerCase();
+            const all = asgPeople();
+            const hit = all.filter(s => !q || String(s.name || '').toLowerCase().includes(q));
+            const row = s => {
+                const on = !!D.shift[s.uid], fav = !!asgFav[s.uid];
+                return `<div class="asg-fav-row${on ? ' on' : ''}">
+                    <button type="button" class="pick" onclick="asgShiftToggle('${encAttr(s.uid)}')" aria-pressed="${on}">
+                        <span class="ck">${on ? '✓' : ''}</span>
+                        <span class="nm">${gEsc(s.name)}<em>${role(s.uid)}</em></span>
+                        ${cnt[s.uid] ? `<span class="n">${cnt[s.uid]}집</span>` : ''}
+                    </button>
+                    <button type="button" class="star${fav ? ' on' : ''}" onclick="asgFavToggle('${encAttr(s.uid)}')" aria-label="${fav ? '즐겨찾기 빼기' : '즐겨찾기'}" title="${fav ? '즐겨찾기 빼기' : '즐겨찾기'}">${fav ? '★' : '☆'}</button>
+                </div>`;
+            };
+            const favs = hit.filter(s => asgFav[s.uid]), rest = hit.filter(s => !asgFav[s.uid]);
+            const n = all.filter(s => D.shift[s.uid]).length;
+            document.getElementById('asg-fav-list').innerHTML = !hit.length
+                ? `<div class="pay-empty">${q ? `'${gEsc(q)}' 이름이 없습니다.` : '직원 목록이 없습니다.'}</div>`
+                : `${favs.length ? `<div class="asg-fav-sec">★ 즐겨찾기</div>${favs.map(row).join('')}` : (q ? '' : '<div class="asg-fav-hint">자주 나오는 사람은 오른쪽 ☆ 를 눌러 두면 맨 위에 모여요.</div>')}
+                   ${rest.length ? `<div class="asg-fav-sec">${favs.length ? '나머지' : '전체'}</div>${rest.map(row).join('')}` : ''}`;
+            document.getElementById('asg-fav-done').textContent = `완료 · 출근 ${n}명`;
+        }
+        function asgShiftToggle(uidEnc) {
+            const p = asgCurParts(); if (!p) return;
+            const D = asgDraft(p), uid = decAttr(uidEnc);
+            if (D.shift[uid]) delete D.shift[uid]; else D.shift[uid] = asgNameOf(uid);
+            asgDirty[p.key] = true;
+            asgShiftRender();
+        }
+        // ★ — 누르면 바로 저장 (실패하면 되돌린다)
+        async function asgFavToggle(uidEnc) {
+            const uid = decAttr(uidEnc);
+            const was = !!asgFav[uid];
+            if (was) delete asgFav[uid]; else asgFav[uid] = true;
+            asgShiftRender();
+            try {
+                const res = await fetch(`${FIREBASE_DB_URL}settings/rider_fav/${encodeURIComponent(uid)}.json`, was
+                    ? { method: 'DELETE' }
+                    : { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: 'true' });
+                if (!res.ok) throw new Error('서버 응답 ' + res.status);
+            } catch (e) {
+                console.warn(e);
+                if (was) asgFav[uid] = true; else delete asgFav[uid];
+                asgShiftRender();
+                showToast('⚠️ 즐겨찾기를 저장하지 못했습니다.');
+            }
+        }
+        /* [신규 2026-10-27] 초기화 — 그날 모든 집의 담당만 지운다 (미배정으로). 출근 칩과 할증(무게)은 그대로 (사장님 정함).
+           저장을 눌러야 서버에 반영된다. */
+        async function asgReset() {
+            const p = asgCurParts(); if (!p) return;
+            const D = asgDraft(p);
+            const n = Object.values(D.h).filter(a => a && a.rider).length;
+            if (!n) { showToast('지울 담당이 없습니다.'); return; }
+            if (!(await gAskBox(`${p.label} 담당 ${n}집을 모두 미배정으로 바꿀까요?\n(출근·할증은 그대로, 저장을 눌러야 반영됩니다)`, '초기화'))) return;
+            Object.keys(D.h).forEach(h => {
+                const cur = Object.assign({}, D.h[h]);
+                delete cur.rider; delete cur.riderName;
+                if (Object.keys(cur).length) D.h[h] = cur; else delete D.h[h];
+            });
+            asgTouch(p);
+            showToast('담당을 모두 지웠어요. 저장을 눌러야 반영돼요.');
+        }
         async function asgSave() {
             const p = asgCurParts(); if (!p) return;
             const D = asgDraft(p), me = window.gStaffMe || {};
+            // [신규 2026-10-27] 저장할 때 그날 집마다 할증(거리)를 적어 둔다 (단지 기본 또는 집에서 고친 값)
+            asgDayHouses(p).forEach(x => {
+                const cur = Object.assign({}, D.h[x.house] || {});
+                const d = asgDistOf(D, x.house, x.apt);
+                if (d) cur.dist = d; else delete cur.dist;
+                if (!cur.distSet) delete cur.distSet;
+                if (Object.keys(cur).length) D.h[x.house] = cur; else delete D.h[x.house];
+            });
             const body = { shift: D.shift, h: D.h, at: Date.now(), by: gNameOnly(me.name) || me.email || '' };
             showLoader('배정 저장 중...');
             try {
@@ -2834,6 +3065,24 @@
                 });
                 if (!res.ok) throw new Error('서버 응답 ' + res.status);
                 (asgMonth[p.month] = asgMonth[p.month] || {})[p.day] = JSON.parse(JSON.stringify(body));
+                // [신규 2026-10-27] 이번 출근자를 '마지막 출근자'로 — 다음 날 배정을 열면 그대로 켜져 있다 (실패해도 배정은 저장됨)
+                if (Object.keys(D.shift || {}).length) {
+                    try {
+                        const ls = await fetch(`${FIREBASE_DB_URL}settings/rider_last_shift.json`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(D.shift) });
+                        if (ls.ok) asgLastShift = JSON.parse(JSON.stringify(D.shift));
+                    } catch (e) { console.warn('마지막 출근자 저장 실패:', e); }
+                }
+                // [신규 2026-10-27] 할증(날씨) — 바뀌었을 때만 rider_surcharge/달/날 에 쓴다 (0이면 지운다)
+                const wNow = parseInt((asgWeather[p.month] || {})[p.day]) || 0;
+                if ((D.weather || 0) !== wNow) {
+                    const wu = `${FIREBASE_DB_URL}rider_surcharge/${p.month}/${p.day}.json`;
+                    const wr = D.weather
+                        ? await fetch(wu, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(D.weather) })
+                        : await fetch(wu, { method: 'DELETE' });
+                    if (!wr.ok) throw new Error('할증(날씨) 서버 응답 ' + wr.status);
+                    const wm = asgWeather[p.month] = asgWeather[p.month] || {};
+                    if (D.weather) wm[p.day] = D.weather; else delete wm[p.day];
+                }
                 delete asgDirty[p.key];
                 showToast(`${p.label} 배정 저장 — 기사 화면에 바로 보여요.`);
             } catch (e) {
@@ -2846,6 +3095,8 @@
         function asgRenderBand() {
             const band = document.getElementById('asg-band');
             if (!band) return;
+            const tag = document.getElementById('date-asg-tag');   // [신규 2026-10-27] 날짜 칸 안 '배정 중'
+            if (tag) tag.hidden = !asgOn;
             if (!asgOn) { band.style.display = 'none'; band.innerHTML = ''; return; }
             band.style.display = '';
             const p = asgCurParts();
@@ -2867,47 +3118,149 @@
                 if (a && a.rider) cnt[a.rider] = (cnt[a.rider] || 0) + 1;
                 else if (!x.done) un++;
             });
-            const chips = asgPeople().map(s => {
-                const on = !!D.shift[s.uid];
-                if (!on && !cnt[s.uid]) return `<button type="button" class="asg-chip" onclick="asgToggleShift('${encAttr(s.uid)}')">${gEsc(s.name)}</button>`;
-                return `<button type="button" class="asg-chip${on ? ' on' : ' off'}" onclick="asgToggleShift('${encAttr(s.uid)}')" title="${on ? '출근 — 누르면 뺍니다' : '출근 안 함 (맡은 집이 남아 있음)'}">${gEsc(s.name)} <b>${cnt[s.uid] || 0}</b></button>`;
-            }).join('');
+            /* [수정 2026-10-27] 띠에는 출근한 사람만 칩으로 (숫자는 맡은 집). 사람 고르기는 '출근' 단추 → 출근 창에서 (사장님 설명대로).
+               출근을 뺐는데 맡은 집이 남은 사람은 점선 칩으로 보인다 — 다시 나누거나 옮겨야 한다. */
+            const ppl = asgPeople().sort((a, b) => (asgFav[b.uid] ? 1 : 0) - (asgFav[a.uid] ? 1 : 0));
+            const onN = ppl.filter(s => D.shift[s.uid]).length;
+            // [수정 2026-10-27] 표처럼 칸을 나눠 — 칸마다 이름(위) · 맡은 집 수(아래), 마지막 칸은 미배정 (사장님 선택 ③)
+            const cells = ppl.filter(s => D.shift[s.uid] || cnt[s.uid]).map(s => D.shift[s.uid]
+                ? `<div><span>${gEsc(s.name)}</span><b>${cnt[s.uid] || 0}</b></div>`
+                : `<div class="off" title="출근 안 함 — 맡은 집이 남아 있음"><span>${gEsc(s.name)}</span><b>${cnt[s.uid]}</b></div>`);
+            /* [수정 2026-10-27] 출근 · 할증 단추도 같은 표의 칸으로 (사장님 요청 — 전반적으로 표를 맞춰).
+               [사람 칸 … | 미배정 | 출근 | 할증] 한 표. 출근자가 없으면 사람 칸 자리에 '출근자 ✕' 칸 하나 */
+            /* [수정 2026-10-27] 한 표(칸 하나 = 52px 쯤). 한 줄에 다 들어가면 모든 칸을 고르게 늘리고,
+               넘치면 출근 · 할증은 맨 윗줄 오른쪽 두 칸만 쓰고 나머지 사람 칸은 아랫줄로 (사장님 요청 — 두 줄을 합쳐 길게 하지 말 것) */
+            const items = [...(cells.length ? cells : ['<div class="none"><span>출근자</span><b>✕</b></div>']), `<div class="un"><span>미배정</span><b>${un}</b></div>`];
+            const btnHtml = `<button type="button" class="btn" onclick="asgShiftOpen()"><span>출근</span><b>${onN}명</b></button>
+                <button type="button" class="btn${D.weather ? ' on' : ''}" onclick="asgSurOpen()"><span>할증</span><b>${D.weather ? D.weather.toLocaleString() : '설정'}</b></button>`;
+            const W = (band.clientWidth || (document.querySelector('.container') || {}).clientWidth || 340) - 26;   // 띠 안쪽 너비
+            const cols = Math.max(4, Math.floor(W / 52));
+            const one = items.length + 2 <= cols;
+            const tbl = `<div class="asg-tbl" style="grid-template-columns:repeat(${one ? items.length + 2 : cols}, minmax(0, 1fr));">
+                ${one ? items.join('') + btnHtml : items.slice(0, cols - 2).join('') + btnHtml + items.slice(cols - 2).join('')}
+            </div>`;
+            // [수정 2026-10-27] 출근을 맨 위로 (사장님 요청) — 날짜 줄 · 출근 · 단추 차례
+            // [수정 2026-10-27] '배정 중 · 날짜 · 몇 집' 윗줄은 뺐다 — '배정 중'은 날짜 칸 안에 (사장님 요청). 저장 안 됨은 저장 단추에 점으로
             band.innerHTML = `
-                <div class="asg-top">
-                    <b>배정 중</b><span>${p.label} · ${houses.length}집</span>
-                    ${asgDirty[p.key] ? '<em class="asg-dirty">저장 안 됨</em>' : ''}
-                </div>
+                ${tbl}
                 <div class="asg-btns">
                     <button type="button" onclick="asgAuto()">자동 나누기</button>
-                    <button type="button" class="go" onclick="asgSave()">저장</button>
+                    <button type="button" onclick="asgReset()">초기화</button>
+                    <button type="button" class="go" onclick="asgSave()"${asgDirty[p.key] ? ' title="저장 안 됨"' : ''}>저장${asgDirty[p.key] ? '<i class="asg-dot" aria-label="저장 안 됨"></i>' : ''}</button>
                     <button type="button" onclick="asgClose()">끝내기</button>
                 </div>
-                <div class="asg-sub">출근 <span>누르면 켜고 끕니다 · 숫자는 맡은 집</span></div>
-                <div class="asg-chips">${chips}${un ? `<span class="asg-un">미배정 ${un}</span>` : ''}</div>
                 ${asgFailed[p.month] ? '<div class="asg-msg warn">저장된 배정을 못 불러왔습니다 (Firebase 규칙 게시 전이면 막혀 있습니다).</div>' : ''}`;
         }
-        // 아파트 단추 둘째 줄 — 그 단지를 맡은 사람들 (미배정이 있으면 그 수)
+        /* [수정 2026-10-27] 아파트 단추 둘째 줄 — 배정 중이면 (미배정 집 / 전체 집)을 주황 숫자로 (사장님 요청 — '미배정 4' 글자 대신).
+           배달이 끝난 집은 미배정으로 세지 않는다. '전체' 단추도 같은 셈. */
         function asgAptLabel(list) {
             const p = asgCurParts(); if (!p || !asgMonth[p.month]) return '';
             const D = asgDraft(p);
-            const names = new Set(); let un = 0; const seen = new Set();
+            let un = 0; const seen = new Set();
             (list || []).forEach(o => {
                 const h = gHouseKeyOf(o); if (!h || seen.has(h)) return; seen.add(h);
                 const a = D.h[h];
-                if (a && a.rider) names.add(asgNameOf(a.rider) || a.riderName || '?');
-                else if (o.status !== '배달완료') un++;
+                if (!(a && a.rider) && o.status !== '배달완료') un++;
             });
-            const t = [...names].join('·');
-            return un ? `${t ? t + ' · ' : ''}<span style="color:#ea580c;">미배정 ${un}</span>` : (t || '-');
+            return `<span class="asg-cnt">(${un}/${seen.size})</span>`;
         }
-        // 아파트를 골랐을 때 목록 맨 위 — 이 단지를 통째로 한 사람에게
-        function asgAptCardHtml(apt) {
+        // 아파트를 골랐을 때 목록 맨 위 — 이 단지를 통째로 한 사람에게. [수정 2026-10-27] 동을 골랐으면 '푸지2차 103동 통째로'
+        function asgAptCardHtml(apt, dong) {
             const p = asgCurParts(); if (!p) return '';
             const D = asgDraft(p);
+            const d = (apt !== '전체' && dong && dong !== '전체') ? dong : '';
+            const title = apt === '전체' ? '오늘 전체' : (d ? `${apt} ${d}` : apt);
             const ppl = asgPeople().filter(s => D.shift[s.uid]);
-            if (!ppl.length) return `<div class="asg-aptcard"><b>${gEsc(apt)}</b><span class="asg-msg">위에서 출근한 사람을 먼저 눌러 주세요.</span></div>`;
-            return `<div class="asg-aptcard"><b>${gEsc(apt)} 통째로</b>
-                <div class="asg-who">${ppl.map(s => `<button type="button" onclick="asgSetApt('${encAttr(apt)}', '${encAttr(s.uid)}')">${gEsc(s.name)}</button>`).join('')}</div></div>`;
+            const distRow = '';   // [수정 2026-10-27] 단지 할증(거리) 기본은 '할증' 창으로 옮겼다
+            if (!ppl.length) return `<div class="asg-aptcard"><b>${gEsc(title)}</b><span class="asg-msg">위 출근 단추에서 사람을 먼저 골라 주세요.</span>${distRow}</div>`;
+            // [수정 2026-10-27] 이 묶음(전체·단지·동)의 안 끝난 집이 모두 한 사람에게 가 있으면 그 사람 단추를 주황으로 (사장님 지적 — 눌러도 색이 안 변했다)
+            const scope = asgDayHouses(p).filter(x => (apt === '전체' || x.apt === apt) && !x.done && (!d || getDongGroupName(x.rows[0]) === d));
+            const owner = scope.length && scope.every(x => (D.h[x.house] || {}).rider === (D.h[scope[0].house] || {}).rider) ? (D.h[scope[0].house] || {}).rider : '';
+            return `<div class="asg-aptcard"><b>${gEsc(title)}</b><!-- [수정 2026-10-27] '통째로' 글씨는 뺐다 (사장님 요청) -->
+                <div class="asg-who">${ppl.map(s => `<button type="button" class="${owner && owner === s.uid ? 'on' : ''}" onclick="asgSetApt('${encAttr(apt)}', '${encAttr(s.uid)}', '${encAttr(d)}')">${gEsc(s.name)}</button>`).join('')}</div>${distRow}</div>`;
+        }
+        /* [신규 2026-10-27] 할증 창 — 배정 띠의 '할증' 단추로 연다 (출근 창과 같은 모양).
+           · 할증(날씨): 그날 모든 집에 — 고치는 중인 배정에 들어가고 띠의 '저장'으로 서버에 남는다
+           · 할증(거리) 기본 단가: 아파트마다 — 칸에서 손을 떼면 바로 설정에 저장 (그날 집들에는 '저장'을 눌러야 적힌다)
+           아파트 목록 = 오늘 배달 있는 단지 → 아파트 순서에 적힌 단지 → 기본 단가를 정해 둔 단지 ('기타' 빼고) */
+        function asgSurOpen() {
+            const p = asgCurParts(); if (!p) return;
+            const D = asgDraft(p);
+            const num = `oninput="const n=payDigits(this.value);this.value=n?n.toLocaleString():''"`;
+            const apts = [];
+            const add = a => { if (a && a !== '기타' && !apts.includes(a)) apts.push(a); };
+            asgDayHouses(p).map(x => x.apt).sort((a, b) => gAptOrderIdx(a) - gAptOrderIdx(b)).forEach(add);
+            (APT_ORDER || []).forEach(add);
+            Object.keys(asgDist).forEach(add);
+            const today = new Set(asgDayHouses(p).map(x => x.apt));
+            document.getElementById('asg-sur-title').textContent = `할증 · ${p.label}`;
+            document.getElementById('asg-sur-body').innerHTML = `
+                <div class="asg-fav-sec">할증(날씨) — 체크하면 오늘 모든 집에</div>
+                <div class="asg-dist-row asg-w${D.weather ? ' on' : ''}">
+                    <button type="button" class="pick" onclick="asgWeatherToggle()" aria-pressed="${!!D.weather}">
+                        <span class="ck">${D.weather ? '✓' : ''}</span><span class="nm">날씨 할증</span>
+                    </button>
+                    <label class="pay-rate"><input type="text" inputmode="numeric" id="asg-w-amt" placeholder="500" aria-label="할증(날씨) 금액" value="${(D.weather || asgWeatherAmt).toLocaleString()}" ${num} onchange="asgWeatherAmtFrom(this)"></label>
+                </div>
+                <div class="asg-fav-sec">할증(거리) — 아파트마다 기본 단가 · 카드에서 거리를 체크한 집에만 붙어요</div>
+                ${apts.map(a => {
+                    const v = parseInt(asgDist[asgDistKey(a)]) || 0;
+                    return `<div class="asg-dist-row">
+                        <span class="nm">${gEsc(a)}${today.has(a) ? '<em>오늘</em>' : ''}</span>
+                        <label class="pay-rate"><input type="text" inputmode="numeric" placeholder="0" aria-label="${gEsc(a)} 할증(거리)" value="${v ? v.toLocaleString() : ''}" ${num} onchange="asgDistAptFrom(this, '${encAttr(a)}')"></label>
+                    </div>`;
+                }).join('') || '<div class="pay-empty">아파트가 없습니다.</div>'}`;
+            document.getElementById('asg-sur-modal').style.display = 'flex';
+        }
+        function asgSurClose() { document.getElementById('asg-sur-modal').style.display = 'none'; renderFilteredData(); }
+        // [신규 2026-10-27] 단지 할증(거리) 기본 저장 — 바로 settings/rider_dist 에. 그날 배정은 '저장 안 됨'으로 (집마다 금액이 바뀌므로)
+        async function asgDistAptFrom(el, aptEnc) {
+            const p = asgCurParts(); if (!p) return;
+            const apt = decAttr(aptEnc), k = asgDistKey(apt);
+            const amt = Math.min(100000, payDigits(el.value));
+            const was = asgDist[k];
+            if (amt) asgDist[k] = amt; else delete asgDist[k];
+            try {
+                const u = `${FIREBASE_DB_URL}settings/rider_dist/${encodeURIComponent(k)}.json`;
+                const res = amt ? await fetch(u, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(amt) })
+                    : await fetch(u, { method: 'DELETE' });
+                if (!res.ok) throw new Error('서버 응답 ' + res.status);
+                showToast(`${apt} 할증(거리) ${amt ? amt.toLocaleString() + '원' : '없음'}`);
+            } catch (e) {
+                console.warn(e);
+                if (was) asgDist[k] = was; else delete asgDist[k];
+                showToast('⚠️ 할증(거리)를 저장하지 못했습니다.');
+            }
+            renderFilteredData();   // 기본 단가는 체크할 때만 쓰여 그날 배정이 바뀌지는 않는다
+        }
+        // [수정 2026-10-27] 카드의 '거리' 체크 — 켜면 금액 칸 값(처음엔 단지 기본 단가)으로 붙고, 끄면 뺀다
+        function asgDistToggle(el) {
+            const p = asgCurParts(); if (!p) return;
+            const box = el.closest('.asg-sur');
+            const house = decAttr(box.getAttribute('data-house'));
+            const D = asgDraft(p);
+            const cur = Object.assign({}, D.h[house] || {});
+            if (cur.distSet) { delete cur.distSet; delete cur.dist; }
+            else {
+                const v = Math.min(100000, payDigits(box.querySelector('.d').value));
+                if (!v) { showToast('거리 금액을 먼저 적어 주세요.'); return; }
+                cur.distSet = true; cur.dist = v;
+            }
+            if (Object.keys(cur).length) D.h[house] = cur; else delete D.h[house];
+            asgTouch(p);
+        }
+        // 금액 칸 — 체크된 집이면 바로 그 금액으로 (0이면 체크가 꺼진다). 체크 안 된 집은 다음에 체크할 때 쓸 금액만 바뀐다
+        function asgDistFrom(el) {
+            const p = asgCurParts(); if (!p) return;
+            const box = el.closest('.asg-sur');
+            const house = decAttr(box.getAttribute('data-house'));
+            const D = asgDraft(p);
+            const cur = Object.assign({}, D.h[house] || {});
+            if (!cur.distSet) return;
+            const v = Math.min(100000, payDigits(el.value));
+            if (v) cur.dist = v; else { delete cur.distSet; delete cur.dist; }
+            if (Object.keys(cur).length) D.h[house] = cur; else delete D.h[house];
+            asgTouch(p);
         }
         // 카드 아래 — 배정 화면이면 담당 고르기 + 할증 칸 (전화·완료 단추 대신)
         function asgCardFootHtml(rep) {
@@ -2917,14 +3270,29 @@
             const ppl = asgPeople().filter(s => D.shift[s.uid] || s.uid === a.rider);
             const who = ppl.length
                 ? ppl.map(s => `<button type="button" class="${a.rider === s.uid ? 'on' : ''}" onclick="asgSet('${encAttr(house)}', '${encAttr(s.uid)}')">${gEsc(s.name)}</button>`).join('')
-                : '<span class="asg-msg">위에서 출근한 사람을 먼저 눌러 주세요.</span>';
+                : '<span class="asg-msg">위 출근 단추에서 사람을 먼저 골라 주세요.</span>';
             return `<div class="asg-foot">
                 <div class="asg-who">${who}</div>
-                <div class="asg-sur" data-house="${encAttr(house)}">
-                    <span>할증(무게)</span>
-                    <label class="pay-rate"><input type="text" inputmode="numeric" class="a" placeholder="0" aria-label="할증 금액" value="${a.sur ? parseInt(a.sur).toLocaleString() : ''}" oninput="const n=payDigits(this.value);this.value=n?n.toLocaleString():''" onchange="asgSurFrom(this)"></label>
-                    <span class="u">원 (집 하나에)</span>
-                </div>
+                ${(() => {   // [수정 2026-10-27] 할증 무게·거리를 한 줄로. 거리는 체크한 집에만 — 금액 칸엔 처음에 단지 기본 단가 (사장님 정함)
+                    const apt = extractApartmentName(rep.address);
+                    const on = !!a.distSet;
+                    const dv = on ? (parseInt(a.dist) || 0) : asgDistDefault(apt);
+                    // [수정 2026-10-27] 금액을 누르면 숫자가 통째로 골라져 바로 새로 쓴다 (사장님 요청)
+                    const num = `onfocus="const t=this; setTimeout(() => t.setSelectionRange(0, t.value.length), 0)" onmouseup="return false" oninput="const n=payDigits(this.value);this.value=n?n.toLocaleString():''"`;
+                    // [수정 2026-10-27] 무게 · 거리를 각각 한 칸(이름 | 금액)으로 묶었다 — 거리는 이름 쪽을 누르면 체크 (사장님 요청: 칸이 안 나뉘게 깔끔하게)
+                    // [신규 2026-10-27] 그날 할증(날씨)가 있으면 '날씨' 단추 — 처음엔 켜져 있고, 누르면 이 집만 빠진다 (사장님 요청)
+                    // [수정 2026-10-27] 날씨도 집마다 — 그날 날씨 할증이 없어도 켤 수 있고, 금액도 집마다 고친다 (asgWeatherOf)
+                    const wv = asgWeatherOf(D, house), wOn = wv > 0, mOn = !!parseInt(a.sur);
+                    const wShow = wv || D.weather || ASG_SUR_DEFAULT;   // 꺼져 있으면 켤 때 쓸 금액 (그날 날씨 금액 → 500)
+                    /* [수정 2026-10-27] 칸 안의 칸을 없앴다 (사장님 요청) — 테두리 없이 한 줄: ☐ 날씨 500 · ☐ 무게 500 · ☐ 거리 1,000.
+                       이름(네모)을 누르면 켜고 끄고, 무게·거리 금액은 밑줄 친 숫자를 눌러 고친다. 날씨 금액은 그날 정한 값(여기서 못 고침) */
+                    const item = (cls, on, onclick, label, val) => `<span class="asg-it${on ? ' on' : ''}"><button type="button" class="t" onclick="${onclick}" aria-pressed="${on}"><i>${on ? '✓' : ''}</i>${label}</button>${val}</span>`;
+                    return `<div class="asg-sur asg-sur3" data-house="${encAttr(house)}">
+                        ${item('w', wOn, 'asgWeatherHouse(this)', '날씨', `<input type="text" inputmode="numeric" class="w" aria-label="할증(날씨) 금액" value="${wShow.toLocaleString()}" ${num} onchange="asgWeatherHouseAmt(this)">`)}
+                        ${item('m', mOn, 'asgSurToggle(this)', '무게', `<input type="text" inputmode="numeric" class="a" aria-label="할증(무게) 금액" value="${(parseInt(a.sur) || ASG_SUR_DEFAULT).toLocaleString()}" ${num} onchange="asgSurFrom(this)">`)}
+                        ${item('d', on, 'asgDistToggle(this)', '거리', `<input type="text" inputmode="numeric" class="d" placeholder="0" aria-label="할증(거리) 금액" value="${dv ? dv.toLocaleString() : ''}" ${num} onchange="asgDistFrom(this)">`)}
+                    </div>`;
+                })()}
             </div>`;
         }
         // 카드 위 작은 표 — 담당(가게만 · 배정 화면 아닐 때) · 할증 · 미배정(배정 화면)
@@ -2937,6 +3305,13 @@
             if (asgOn) out.push(a && a.rider ? `<span class="asg-b who">${gEsc(asgNameOf(a.rider) || a.riderName || '')}</span>` : `<span class="asg-b un">미배정</span>`);
             else if (gIsStore() && a && a.rider) out.push(`<span class="asg-b who">담당 ${gEsc(asgNameOf(a.rider) || a.riderName || '')}</span>`);
             if (a && parseInt(a.sur)) out.push(`<span class="asg-b sur">할증(무게) +${parseInt(a.sur).toLocaleString()}</span>`);
+            // [신규 2026-10-27] 할증(거리) — 배정 화면이면 단지 기본까지 셈, 아니면 저장된 값
+            const dv = (asgOn && cur && cur.ymd === parts.ymd) ? asgDistOf(asgDraft(cur), house, extractApartmentName(rep.address)) : (parseInt((a || {}).dist) || 0);
+            if (dv) out.push(`<span class="asg-b sur">할증(거리) +${dv.toLocaleString()}</span>`);
+            // [신규 2026-10-27] 그날 할증(날씨) — 배정 화면이면 고치는 중인 값
+            const dayW = (asgOn && cur && cur.ymd === parts.ymd) ? (asgDraft(cur).weather || 0) : (parseInt((asgWeather[parts.month] || {})[parts.day]) || 0);
+            const ws = a && a.wSet ? (parseInt(a.w) || 0) : (a && a.noW ? 0 : dayW);   // [수정 2026-10-27] 집마다 날씨 (켬 · 끔 · 그날 값)
+            if (ws) out.push(`<span class="asg-b sur">할증(날씨) +${ws.toLocaleString()}</span>`);
             return out.length ? `<div class="asg-badges">${out.join('')}</div>` : '';
         }
 
@@ -3102,19 +3477,37 @@
             const month = (document.getElementById('pay-month') || {}).value || '';
             return parseInt((asgSavedOf(month, dd, house) || {}).sur) || 0;
         }
+        // [신규 2026-10-27] 집 할증 둘 — hw 할증(무게), hd 할증(거리), hs = 둘을 더한 것 (계산은 hs 하나로 한다)
+        function payHouseExtra(dd, house, x) {
+            const month = (document.getElementById('pay-month') || {}).value || '';
+            const a = asgSavedOf(month, dd, house) || {};
+            x.hw = parseInt(a.sur) || 0;
+            x.hd = parseInt(a.dist) || 0;
+            x.hs = x.hw + x.hd;
+            // [신규 2026-10-27] 그 집 할증(날씨) — 그날 날씨 할증이 있어도 배정에서 이 집만 끈 것(noW)이면 0 (사장님 요청)
+            x.ww = a.wSet ? (parseInt(a.w) || 0) : (a.noW ? 0 : paySurOf(dd));   // 집에서 따로 정한 날씨 금액이 먼저
+            return x;
+        }
         // 한 사람의 이 달 배달을 날짜 순으로 (지급은 앞에서부터 덮는다고 본다). hs = 그 집 힘든 배달 할증
         function payDeliveriesOf(r) {
             const list = [];
-            Object.keys(r.days || {}).forEach(dd => (r.days[dd] || []).forEach(rec => list.push({ dd, at: parseInt(rec.at) || 0, house: rec.house, hs: payHouseSur(dd, rec.house) })));
+            Object.keys(r.days || {}).forEach(dd => (r.days[dd] || []).forEach(rec => list.push(payHouseExtra(dd, rec.house, { dd, at: parseInt(rec.at) || 0, house: rec.house }))));
             list.sort((a, b) => a.dd.localeCompare(b.dd) || a.at - b.at);
             return list;
         }
         /* [수정 2026-10-27] 지급마다 어느 배달을 덮는지 — 지급한 차례대로 본다.
            기간을 정한 지급(from~to, 'DD')은 그 기간 안의 아직 안 덮인 배달을, 예전 지급(기간 없음)은 날짜 순 앞에서부터를
            그 지급의 건수만큼 덮는다. 돌려주는 것: 배달마다 { dd, at, p(덮은 지급 또는 null) } */
+        // [수정 2026-10-27] 지급에 준 배달 목록(keys: 'DD/집키' 문자열 하나)이 남아 있으면 그 배달만 정확히 덮는다.
+        //  (건수만 보던 예전 방식은, 지급한 뒤 그 기간에 기록이 늦게 들어오면 다른 날 배달이 미지급으로 밀렸다)
         function payCover(r) {
             const list = payDeliveriesOf(r).map(x => Object.assign({ p: null }, x));
             payPaymentsOf(r.uid).list.forEach(p => {
+                if (p.keys) {
+                    const ks = new Set(String(p.keys).split(','));
+                    list.forEach(x => { if (!x.p && ks.has(`${x.dd}/${x.house}`)) x.p = p; });
+                    return;
+                }
                 let n = parseInt(p.count) || 0;
                 for (const x of list) {
                     if (n <= 0) break;
@@ -3134,9 +3527,51 @@
             let rest = payCover(r).filter(x => !x.p);
             if (from && to) rest = rest.filter(x => x.dd >= from && x.dd <= to);
             const left = rest.length;
-            const surDue = rest.reduce((s, x) => s + paySurOf(x.dd) + (x.hs || 0), 0);   // 날짜 할증 + 집 할증
+            const surDue = rest.reduce((s, x) => s + (x.ww || 0) + (x.hs || 0), 0);   // 날짜 할증 + 집 할증
             const due = left * rate + surDue;
-            return { pay, rate, left, surDue, due, total: pay.amount + due, rest };
+            return { pay, rate, left, surDue, due, total: pay.amount + due, rest, sb: paySurBreak(rest) };
+        }
+        /* [신규 2026-10-27] 할증 종류별 셈 (사장님 요청 — 정산에서 날씨·무게·거리를 나눠 보이게).
+           list = payCover/payDeliveriesOf 꼴 배달들 → { w:날씨, m:무게, d:거리 } 마다 { n:건수, a:금액 }, all = 합 */
+        // [신규 2026-10-27] 한 사람의 날짜마다 할증 합 (날씨 + 무게 + 거리) — 달력 칸의 '+할증'
+        function payDaySurAmounts(r) {
+            const out = {};
+            payDeliveriesOf(r).forEach(x => { const v = (x.ww || 0) + (x.hs || 0); if (v) out[x.dd] = (out[x.dd] || 0) + v; });
+            return out;
+        }
+        function paySurBreak(list) {
+            const b = { w: { n: 0, a: 0 }, m: { n: 0, a: 0 }, d: { n: 0, a: 0 } };
+            (list || []).forEach(x => {
+                const w = (x.ww || 0);
+                if (w) { b.w.n++; b.w.a += w; }
+                if (x.hw) { b.m.n++; b.m.a += x.hw; }
+                if (x.hd) { b.d.n++; b.d.a += x.hd; }
+            });
+            b.all = b.w.a + b.m.a + b.d.a;
+            return b;
+        }
+        // '날씨 1,000 · 무게 500' — 0 인 종류는 뺀다. withN 이면 '날씨 2건 1,000'
+        function paySurBreakText(b, withN) {
+            return [['w', '날씨'], ['m', '무게'], ['d', '거리']].filter(([k]) => b[k].a > 0)
+                .map(([k, t]) => `${t}${withN ? ` ${b[k].n}건` : ''} ${b[k].a.toLocaleString()}`).join(' · ');
+        }
+        // 지급 기록 한 줄의 할증 — 종류별로 남긴 지급이면 그대로, 예전 지급이면 '할증 합계'만
+        function payRecSurText(p) {
+            if (p.sw != null || p.sm != null || p.sd != null) {
+                return paySurBreakText({ w: { a: parseInt(p.sw) || 0 }, m: { a: parseInt(p.sm) || 0 }, d: { a: parseInt(p.sd) || 0 } });
+            }
+            return parseInt(p.surcharge) ? `할증 ${parseInt(p.surcharge).toLocaleString()}` : '';
+        }
+        // 맨 위 요약의 할증 칸을 누르면 종류별이 펼쳐진다
+        let payShowSurBrk = false;
+        function paySumHtml(cnt, total, due, b) {
+            return `
+                <div><span>총 건수</span><b>${cnt.toLocaleString()}건</b></div>
+                <div class="tap" role="button" tabindex="0" onclick="payShowSurBrk=!payShowSurBrk; payRender();" title="눌러서 종류별 보기"><span>할증 ${payShowSurBrk ? '▴' : '▾'}</span><b class="sur">${payWon(b.all)}</b></div>
+                <div><span>총액</span><b>${payWon(total)}</b></div>
+                <div><span>미지급</span><b class="${due ? 'due' : ''}">${payWon(due)}</b></div>
+                ${payShowSurBrk ? `<div class="brk">${b.all ? [['w', '할증(날씨)'], ['m', '할증(무게)'], ['d', '할증(거리)']].map(([k, t]) =>
+                    `<p><span>${t}</span><em>${b[k].n}건</em><b>${b[k].a.toLocaleString()}원</b></p>`).join('') : '<p><span>이 달 할증이 없습니다.</span></p>'}</div>` : ''}`;
         }
 
         function payRender() {
@@ -3169,7 +3604,7 @@
                                     ${locked ? 'disabled title="이 달 몫을 다 지급해서 단가를 바꿀 일이 없습니다. 지급 표시를 지우면 고칠 수 있습니다."' : ''}>
                             </label>
                             <span class="pay-cnt"><b>${r.count}</b>${c.pay.list.length && c.left > 0 ? `<em>+${c.left}</em>` : ''}</span>
-                            <span class="amt${c.total ? '' : ' zero'}" data-pay-amt="${uidAttr}">${c.total.toLocaleString()}</span>
+                            <span class="amt${c.total ? '' : ' zero'}" data-pay-amt="${uidAttr}">${c.total.toLocaleString()}${(() => { const s = paySurBreak(payDeliveriesOf(r)).all; return s ? `<small class="pay-sur-n">할증 ${s.toLocaleString()}</small>` : ''; })()}</span><!-- [수정 2026-10-27] 금액 밑에 이 달 할증 합 -->
                             ${action}
                         </div>
                         ${payPayPick === r.uid && c.left > 0 ? payPayPanel(r) : ''}
@@ -3186,36 +3621,50 @@
             payUpdateSummary();
         }
 
-        /* 지급 기록 — 작은 표. 칸은 위 기사 줄과 같다(지급일 · 건수 · 단가 · 금액 · 취소)라 세로로 맞는다.
-           가게는 줄마다 '취소'로 지울 수 있다. 지급한 뒤 늦게 들어온 몫은 맨 아래 '미지급' 줄로 */
+        /* [수정 2026-10-27] 지급 기록 — 지급일(기간) · 건수 · 할증 · 금액(총액) (사장님 요청 — 단가 칸과 할증 종류 나눔은 뺐다).
+           가게는 줄마다 '취소'. 지급한 뒤 늦게 들어온 몫은 맨 아래 '미지급' 줄로 */
+        const payHistSurOpen = new Set();   // 지급 기록에서 할증을 펼친 줄 ('기사uid|지급번호' · '기사uid|due')
+        function payHistSurToggle(keyEnc) {
+            const k = decAttr(keyEnc);
+            if (payHistSurOpen.has(k)) payHistSurOpen.delete(k); else payHistSurOpen.add(k);
+            payRender();
+        }
         function payHistory(r, canEdit) {
             const c = payCalc(r);
             if (!c.pay.list.length) return '';
             const uidAttr = encAttr(r.uid);
             const mm = parseInt(((document.getElementById('pay-month') || {}).value || '').slice(5)) || 0;
-            // [신규 2026-10-27] 건수 칸 밑에 할증 붙은 건수 (지급마다 · 미지급)
-            const surCnt = {}; let surLeft = 0;
-            payCover(r).forEach(x => { if (paySurOf(x.dd) > 0 || x.hs > 0) { if (x.p) surCnt[x.p.id] = (surCnt[x.p.id] || 0) + 1; else surLeft++; } });
-            const cntHtml = (n, s) => `${(parseInt(n) || 0).toLocaleString()}${s ? `<small class="pay-sur-n">할증 ${s}건</small>` : ''}`;
+            const won = n => (parseInt(n) || 0) ? (parseInt(n) || 0).toLocaleString() : '–';
+            /* [신규 2026-10-27] 할증 칸을 누르면 그 줄 밑에 날씨 · 무게 · 거리 (사장님 요청). 오늘 전에 한 지급은 종류가 안 남아 있어 '종류 기록 없음' */
+            // [수정 2026-10-27] 할증 칸 — 금액 밑에 할증 붙은 건수 (사장님 요청)
+            const surN = {}; let surNLeft = 0;
+            payCover(r).forEach(x => { if ((x.ww || 0) + (x.hs || 0) > 0) { if (x.p) surN[x.p.id] = (surN[x.p.id] || 0) + 1; else surNLeft++; } });
+            const surCell = (key, amt, n) => parseInt(amt)
+                ? `<span class="c s tap" role="button" tabindex="0" onclick="payHistSurToggle('${encAttr(key)}')">${won(amt)} ${payHistSurOpen.has(key) ? '▴' : '▾'}${n ? `<small class="pay-sur-n">${n}건</small>` : ''}</span>`
+                : `<span class="c s">–</span>`;
+            const brkRow = (key, b) => payHistSurOpen.has(key)
+                ? `<div class="pay-hbrk">${b ? (paySurBreakText(b) || '–') : '종류 기록 없음 (예전 지급)'}</div>` : '';
+            const recB = p => (p.sw != null || p.sm != null || p.sd != null)
+                ? { w: { a: parseInt(p.sw) || 0 }, m: { a: parseInt(p.sm) || 0 }, d: { a: parseInt(p.sd) || 0 } } : null;
             const rows = c.pay.list.map(p => `
                 <div class="pay-hrow">
                     <span class="d">${payMD(p.at)}${p.from && p.to ? `<small class="pay-rng-n">${mm}/${parseInt(p.from)}${p.from === p.to ? '' : `~${mm}/${parseInt(p.to)}`}</small>` : ''}</span>
-                    <span class="c">${(parseInt(p.rate) || 0).toLocaleString()}</span>
-                    <span class="c">${cntHtml(p.count, surCnt[p.id])}</span>
-                    <span class="r">${(parseInt(p.amount) || 0).toLocaleString()}${parseInt(p.surcharge) ? `<small class="pay-sur-n">할증 ${parseInt(p.surcharge).toLocaleString()}</small>` : ''}</span>
+                    <span class="c">${(parseInt(p.count) || 0).toLocaleString()}건</span>
+                    ${surCell(r.uid + '|' + p.id, p.surcharge, surN[p.id])}
+                    <span class="r">${(parseInt(p.amount) || 0).toLocaleString()}</span>
                     <span class="c">${canEdit ? `<button type="button" onclick="payUnpay('${uidAttr}', '${encAttr(p.id)}')">취소</button>` : ''}</span>
-                </div>`).join('');
+                </div>${brkRow(r.uid + '|' + p.id, recB(p))}`).join('');
             const due = c.left > 0 ? `
                 <div class="pay-hrow due">
                     <span class="d">미지급</span>
-                    <span class="c">${c.rate.toLocaleString()}</span>
-                    <span class="c">${cntHtml(c.left, surLeft)}</span>
-                    <span class="r">${c.due.toLocaleString()}${c.surDue ? `<small class="pay-sur-n">할증 ${c.surDue.toLocaleString()}</small>` : ''}</span>
+                    <span class="c">${c.left.toLocaleString()}건</span>
+                    ${surCell(r.uid + '|due', c.surDue, surNLeft)}
+                    <span class="r">${c.due.toLocaleString()}</span>
                     <span></span>
-                </div>` : '';
+                </div>${brkRow(r.uid + '|due', c.sb)}` : '';
             return `<div class="pay-sec">지급 기록</div>
                 <div class="pay-htable">
-                    <div class="pay-hrow head"><span>지급일</span><span class="c">단가</span><span class="c">건수</span><span class="r">금액</span><span></span></div>
+                    <div class="pay-hrow head"><span>지급일</span><span class="c">건수</span><span class="c">할증</span><span class="r">금액</span><span></span></div>
                     ${rows}${due}
                 </div>`;
         }
@@ -3225,15 +3674,14 @@
             const el = document.getElementById('pay-sum');
             if (!el) return;
             let cnt = 0, total = 0, due = 0;
+            const all = [];
             payByRider().forEach(r => {
                 const inp = document.querySelector(`[data-pay-uid="${encAttr(r.uid)}"]`);
                 const c = payCalc(r, inp && !inp.disabled ? payDigits(inp.value) : null);
                 cnt += r.count; total += c.total; due += c.due;
+                all.push(...payDeliveriesOf(r));
             });
-            el.innerHTML = `
-                <div><span>총 건수</span><b>${cnt.toLocaleString()}건</b></div>
-                <div><span>총액</span><b>${payWon(total)}</b></div>
-                <div><span>미지급</span><b class="${due ? 'due' : ''}">${payWon(due)}</b></div>`;
+            el.innerHTML = paySumHtml(cnt, total, due, paySurBreak(all));   // [수정 2026-10-27] 할증 칸 더함
         }
 
         // 단가를 치는 동안 쉼표를 붙이고, 그 줄 금액과 요약을 바로 다시 계산해 보여 준다
@@ -3243,7 +3691,7 @@
             const uidAttr = el.getAttribute('data-pay-uid');
             const r = payByRider().find(x => x.uid === decAttr(uidAttr));
             const amt = document.querySelector(`[data-pay-amt="${uidAttr}"]`);
-            if (r && amt) { const c = payCalc(r, n); amt.textContent = c.total.toLocaleString(); amt.classList.toggle('zero', !c.total); }
+            if (r && amt) { const c = payCalc(r, n); amt.firstChild.textContent = c.total.toLocaleString(); amt.classList.toggle('zero', !c.total); }   // 밑의 '할증' 작은 글씨는 그대로
             payUpdateSummary();
         }
         // 단가 칸에서 손을 떼면 저장한다 (그 사람 · 그 달). 이미 지급한 몫은 안 바뀐다.
@@ -3284,6 +3732,7 @@
         function payPayOpen(uidEnc) {
             const uid = decAttr(uidEnc);
             payPayPick = (payPayPick === uid) ? '' : uid;
+            payPayAll = true; payPayQuick = 'all';   // 열 때마다 '미지급 전부'로 시작
             payRender();
             if (payPayPick) setTimeout(() => { payPayPreview(); }, 0);
         }
@@ -3294,17 +3743,22 @@
             const rest = payCalc(r).rest;
             const f = rest.length ? rest[0].dd : '01', t = rest.length ? rest[rest.length - 1].dd : lastDD;
             const uidAttr = encAttr(r.uid);
-            const quick = (a, b, txt) => `<button type="button" onclick="payPaySetRange('${a}','${b}')">${txt}</button>`;
+            /* [수정 2026-10-27] '미지급 전부'(처음 고른 것)면 날짜 칸을 회색으로 잠근다 — 날짜와 상관없이 이 달 안 준 것 전부 (사장님 요청).
+               '1~15일' · '16~말일' · '직접 고르기'를 누르면 날짜 칸이 풀린다 */
+            // [수정 2026-10-27] 고른 단추는 초록 칠 (✓ 는 뺐다). 고른 단추를 다시 누르면 풀리고 날짜 칸을 직접 고른다 (사장님 요청 — '직접 고르기' 단추는 뺐다)
+            const all = payPayQuick !== 'free';
+            const quick = (a, b, txt, mode) => { const on = mode === payPayQuick; return `<button type="button" class="${on ? 'on' : ''}" aria-pressed="${on}" onclick="payPaySetRange('${a}','${b}','${on ? 'free' : mode}')">${txt}</button>`; };
+            const dis = all ? ' disabled' : '';
             return `
                 <div class="pay-paybox" data-pay-box="${uidAttr}">
                     <div class="pay-paybox-t">지급할 기간</div>
-                    <div class="pay-paybox-dates">
-                        <input type="date" id="pay-pay-from" min="${month}-01" max="${month}-${lastDD}" value="${month}-${f}" onchange="payPayPreview()" aria-label="시작일">
-                        <span>~</span>
-                        <input type="date" id="pay-pay-to" min="${month}-01" max="${month}-${lastDD}" value="${month}-${t}" onchange="payPayPreview()" aria-label="끝일">
-                    </div>
                     <div class="pay-paybox-q">
-                        ${quick(f, t, '미지급 전부')}${quick('01', '15', '1~15일')}${quick('16', lastDD, `16~${parseInt(lastDD)}일`)}
+                        ${quick(f, t, '미지급 전부', 'all')}${quick('01', '15', '1~15일', 'h1')}${quick('16', lastDD, `16~${parseInt(lastDD)}일`, 'h2')}
+                    </div>
+                    <div class="pay-paybox-dates${all ? ' lock' : ''}">
+                        <input type="date" id="pay-pay-from" min="${month}-01" max="${month}-${lastDD}" value="${month}-${f}" onchange="payPayPreview()" aria-label="시작일"${dis}>
+                        <span>~</span>
+                        <input type="date" id="pay-pay-to" min="${month}-01" max="${month}-${lastDD}" value="${month}-${t}" onchange="payPayPreview()" aria-label="끝일"${dis}>
                     </div>
                     <div class="pay-paybox-sum" id="pay-pay-sum"></div>
                     <div class="pay-paybox-btn">
@@ -3313,11 +3767,17 @@
                     </div>
                 </div>`;
         }
-        function payPaySetRange(a, b) {
+        let payPayAll = true, payPayQuick = 'all';   // 지급 창 — '미지급 전부'로 잠겼나 · 고른 빠른 단추
+        function payPaySetRange(a, b, mode) {
             const month = document.getElementById('pay-month').value;
             const f = document.getElementById('pay-pay-from'), t = document.getElementById('pay-pay-to');
-            if (f) f.value = `${month}-${a}`;
-            if (t) t.value = `${month}-${b}`;
+            const keep = [f && f.value, t && t.value];
+            payPayAll = mode === 'all'; payPayQuick = mode || 'free';
+            payRender();   // 단추 모양 · 잠금을 다시 그린다
+            const f2 = document.getElementById('pay-pay-from'), t2 = document.getElementById('pay-pay-to');
+            // 단추를 풀면(free) 보던 기간을 그대로 두고 날짜 칸만 풀린다
+            if (a && f2 && mode !== 'free') f2.value = `${month}-${a}`; else if (f2 && keep[0]) f2.value = keep[0];
+            if (b && t2 && mode !== 'free') t2.value = `${month}-${b}`; else if (t2 && keep[1]) t2.value = keep[1];
             payPayPreview();
         }
         // 고른 기간 'DD' 둘 — 달이 다르거나 비었으면 null, 거꾸로 골랐으면 바꿔 준다
@@ -3343,7 +3803,11 @@
                 ? '<span class="warn">이 기간에는 안 준 배달이 없습니다.</span>'
                 : !c.rate
                     ? '<span class="warn">단가를 먼저 적어 주세요.</span>'
-                    : `${c.rate.toLocaleString()}원 × ${c.left}건${c.surDue ? ` + 할증 ${c.surDue.toLocaleString()}원` : ''} = <b>${payWon(c.due)}</b>`;
+                    // [수정 2026-10-27] 할증을 종류별 줄로 (날씨 · 무게 · 거리)
+                    : `<div class="pp-row"><span>${c.rate.toLocaleString()}원 × ${c.left}건</span><b>${(c.rate * c.left).toLocaleString()}원</b></div>
+                       ${[['w', '할증(날씨)'], ['m', '할증(무게)'], ['d', '할증(거리)']].filter(([k]) => c.sb[k].a > 0)
+                           .map(([k, t]) => `<div class="pp-row sur"><span>${t} ${c.sb[k].n}건</span><b>${c.sb[k].a.toLocaleString()}원</b></div>`).join('')}
+                       <div class="pp-row sum"><span>합계</span><b>${payWon(c.due)}</b></div>`;
         }
         // 고른 기간 안의 안 준 몫(건수 × 단가 + 할증)을 한 번의 지급으로 남긴다
         async function payPay(uidEnc) {
@@ -3359,11 +3823,13 @@
             if (!c.rate) { showToast('단가를 먼저 적어 주세요.'); return; }
             const mm = parseInt(month.slice(5));
             const rangeTxt = from === to ? `${mm}/${parseInt(from)}` : `${mm}/${parseInt(from)}~${mm}/${parseInt(to)}`;
-            const surTxt = c.surDue ? ` + 할증 ${c.surDue.toLocaleString()}원` : '';
-            if (!confirm(`${r.name || '이름 없음'} · ${rangeTxt}\n단가 ${c.rate.toLocaleString()}원 × ${c.left}건${surTxt} = ${c.due.toLocaleString()}원\n\n지급으로 표시할까요?`)) return;
+            const surTxt = c.surDue ? `\n+ 할증 ${paySurBreakText(c.sb)}` : '';
+            if (!confirm(`${r.name || '이름 없음'} · ${rangeTxt}\n단가 ${c.rate.toLocaleString()}원 × ${c.left}건${surTxt}\n= ${c.due.toLocaleString()}원\n\n지급으로 표시할까요?`)) return;
             const me = window.gStaffMe || {};
             const id = String(Date.now());
-            const rec = { at: Date.now(), by: me.name || me.email || '', count: c.left, rate: c.rate, surcharge: c.surDue, amount: c.due, from, to };
+            // [수정 2026-10-27] 할증을 종류별로도 남긴다 (sw 날씨 · sm 무게 · sd 거리) — 지급 기록에 나눠 보인다
+            const rec = { at: Date.now(), by: me.name || me.email || '', count: c.left, rate: c.rate, surcharge: c.surDue, sw: c.sb.w.a, sm: c.sb.m.a, sd: c.sb.d.a, amount: c.due, from, to,
+                keys: c.rest.map(x => `${x.dd}/${x.house}`).join(',') };   // [신규 2026-10-27] 이번에 준 배달 목록
             try {
                 const res = await fetch(`${FIREBASE_DB_URL}rider_pay/${month}/${encodeURIComponent(uid)}.json`, {
                     method: 'PATCH', headers: { 'Content-Type': 'application/json' },
@@ -3405,15 +3871,11 @@
                 ? `<span class="pay-pill wait">미지급 ${c.left}건</span>`
                 : (c.pay.list.length ? `<span class="pay-pill">지급 완료</span>` : '');   // 날짜는 아래 지급 기록 표의 '지급일' 칸에
             // [수정 2026-10-27] 달력을 맨 위로 (사장님 요청) — 달 넘기기 · 달력 → 요약 · 할증 → 지급 기록
-            const surN = payDeliveriesOf(mine).filter(x => paySurOf(x.dd) > 0 || x.hs > 0).length;   // 할증 붙은 건수
+            const surN = payDeliveriesOf(mine).filter(x => (x.ww || 0) > 0 || x.hs > 0).length;   // 할증 붙은 건수
             // [수정 2026-10-27] 가게 정산처럼 맨 위에 요약 (총 건수 · 총액 · 미지급) — 사장님 요청. 총액은 아래 줄에서 뺐다
             const known = c.rate || c.pay.list.length;
             body.innerHTML = `
-                <div class="pay-sum">
-                    <div><span>총 건수</span><b>${mine.count.toLocaleString()}건</b></div>
-                    <div><span>총액</span><b>${known ? payWon(c.total) : '-'}</b></div>
-                    <div><span>미지급</span><b class="${c.due ? 'due' : ''}">${known ? payWon(c.due) : '-'}</b></div>
-                </div>
+                <div class="pay-sum">${paySumHtml(mine.count, c.total, c.due, paySurBreak(payDeliveriesOf(mine)))}</div><!-- [수정 2026-10-27] 할증 칸 더함 (가게와 같은 모양) -->
                 <div class="pay-me">
                     <div style="padding:10px 12px 0;">${payMonthNavHtml()}</div>
                     ${payRiderDetail(mine, true)}
@@ -3423,7 +3885,7 @@
                             <span>${c.rate ? `단가 ${c.rate.toLocaleString()}원` : '단가 미정'} · ${mine.count}건${surN ? ` <em class="pay-sur-cnt">(할증 ${surN}건)</em>` : ''}</span>
                         </div>
                     </div>
-                    ${paySurBar(false)}
+                    <!-- [수정 2026-10-27] 할증(날씨) 날짜 줄은 뺐다 (사장님 요청) — 날씨 할증은 요약 할증 칸·달력 주황 칸·날짜 내역으로 본다 -->
                     ${c.pay.list.length ? `<div class="pay-days">${payHistory(mine, false)}</div>` : ''}
                 </div>`;
         }
@@ -3437,7 +3899,7 @@
             // [수정] 배달이 없는 달에도 빈 달력 틀은 그대로 보인다
             const first = new Date(y, m - 1, 1).getDay();
             const last = new Date(y, m, 0).getDate();
-            const amt = payDayAmounts(r);
+            const amt = payDayAmounts(r), hsA = payDaySurAmounts(r);   // [신규 2026-10-27] 그날 할증 합
             // [신규 2026-10-27] 그날 배달이 모두 지급된 날은 초록 칸에 ✓ (일부만 지급된 날은 표시 안 함)
             const unpaid = {};
             payCover(r).forEach(x => { if (!x.p) unpaid[x.dd] = true; });
@@ -3451,10 +3913,10 @@
                 const paid = n && !unpaid[dd];
                 // [신규 2026-10-27] 기사 달력은 배달 있는 날을 누르면 아래에 그날 단가별 건수·금액 (payMineDayHtml)
                 const tap = top && n ? ` role="button" tabindex="0" onclick="payMineDayPick('${dd}')" onkeydown="if(event.key==='Enter')payMineDayPick('${dd}')"` : '';
-                cells.push(`<span class="pay-cal-d pay-cal-amt ${n ? 'on' : 'off'}${wd === 0 ? ' sun' : ''}${sur ? ' sur' : ''}${paid ? ' paid' : ''}${tap ? ' tap' : ''}${top && payMineDay === dd ? ' pick' : ''}"${tap}${sur || paid ? ` title="${[sur ? `할증 건당 ${sur.toLocaleString()}원` : '', paid ? '지급 완료' : ''].filter(Boolean).join(' · ')}"` : ''}><i>${d}</i><b>${n || '–'}</b>${n && amt[dd] ? `<em>${amt[dd].toLocaleString()}</em>` : ''}${paid ? '<small class="pd">지급완료</small>' : ''}</span>`);
+                cells.push(`<span class="pay-cal-d pay-cal-amt ${n ? 'on' : 'off'}${wd === 0 ? ' sun' : ''}${paid ? ' paid' : ''}${tap ? ' tap' : ''}${top && payMineDay === dd ? ' pick' : ''}"${tap}${sur || paid ? ` title="${[sur ? `할증 건당 ${sur.toLocaleString()}원` : '', paid ? '지급 완료' : ''].filter(Boolean).join(' · ')}"` : ''}><i>${d}</i><b>${n || '–'}</b>${n && amt[dd] ? `<em>${amt[dd].toLocaleString()}</em>` : ''}${n && hsA[dd] ? `<em class="hs">+${hsA[dd].toLocaleString()}</em>` : ''}${paid ? '<small class="pd">지급완료</small>' : ''}</span>`);
             }
             const head = top
-                ? `<div class="pay-cal-key"><span><i class="k-paid"></i>지급완료</span><span><i class="k-sur"></i>할증(날씨)</span></div>`
+                ? `<div class="pay-cal-key"><span><i class="k-paid"></i>지급완료</span></div>`
                 : `<div class="pay-sec">날짜별 건수 · 금액</div>`;
             return `${head}<div class="pay-cal">
                 ${['일', '월', '화', '수', '목', '금', '토'].map((w, i) => `<span class="pay-cal-w${i === 0 ? ' sun' : ''}">${w}</span>`).join('')}
@@ -3468,46 +3930,66 @@
             payMineDay = payMineDay === dd ? '' : dd;
             payRender();
         }
-        function payMineDayHtml(r) {
-            const dd = payMineDay;
-            if (!dd || !(r.days[dd] || []).length) return '';
+        /* [수정 2026-10-27] 날짜 내역 — '지급완료'와 '미지급' 두 묶음으로 나눠 보여 준다 (사장님 요청).
+           지급은 기사마다 · 배달 한 건마다 따로라, 같은 날에도 두 묶음이 같이 나올 수 있다.
+           묶음마다: 기본(단가 × 건수 — 한 사람이면 단가별, 여러 사람이면 사람별) + 할증 한 줄(종류는 나누지 않음 — 사장님 요청) + 소계.
+           rs = 기사 목록 (기사 화면·기사를 고른 가게 화면이면 한 명, '그날 전체'면 여럿) */
+        let payDdSurOpen = false;   // 날짜 내역의 할증 줄을 펼쳤나
+        function payDaySplitHtml(dd, rs) {
             const month = document.getElementById('pay-month').value;
             const [y, m] = month.split('-').map(Number);
             const W = ['일', '월', '화', '수', '목', '금', '토'];
-            const rateNow = payRateOf(r.uid);
-            const sur = paySurOf(dd);
-            // 단가 + 지급 여부(어느 지급) 로 묶는다
-            const groups = {};
-            payCover(r).filter(x => x.dd === dd).forEach(x => {
-                const rate = x.p ? (parseInt(x.p.rate) || 0) : rateNow;
-                const k = `${rate}|${x.p ? x.p.id : ''}`;
-                (groups[k] = groups[k] || { rate, p: x.p, n: 0 }).n++;
+            const items = [];
+            rs.forEach(r => {
+                const now = payRateOf(r.uid);
+                payCover(r).filter(x => x.dd === dd).forEach(x => items.push(Object.assign({}, x, {
+                    r, rate: x.p ? (parseInt(x.p.rate) || 0) : now, sur: (x.ww || 0) + (x.hs || 0)
+                })));
             });
-            let total = 0, cnt = 0;
-            const rows = Object.values(groups).sort((a, b) => (a.p ? 0 : 1) - (b.p ? 0 : 1) || b.rate - a.rate).map(g => {
-                const amt = g.rate * g.n; total += amt; cnt += g.n;
-                return `<div class="pay-dd-row">
-                    <span>${g.rate.toLocaleString()}원 × ${g.n}건</span>
-                    <b>${amt.toLocaleString()}원</b>
-                    <em class="${g.p ? 'ok' : 'wait'}">${g.p ? `지급완료 ${payMD(g.p.at)}` : '미지급'}</em>
+            if (!items.length) return '';
+            const many = rs.length > 1;
+            let total = 0;
+            const sec = (list, paid) => {
+                if (!list.length) return '';
+                const g = {};
+                list.forEach(x => {
+                    const k = many ? x.r.uid : String(x.rate);
+                    const e = g[k] = g[k] || { label: many ? (x.r.name || '이름 없음') : `${x.rate.toLocaleString()}원`, n: 0, a: 0 };
+                    e.n++; e.a += x.rate;
+                });
+                const base = Object.values(g).map(e => `<div class="pay-dd-row"><span>${gEsc(e.label)} × ${e.n}건</span><b>${e.a.toLocaleString()}원</b><em></em></div>`).join('');
+                const sl = list.filter(x => x.sur > 0), sa = sl.reduce((s, x) => s + x.sur, 0);
+                // [수정 2026-10-27] 할증은 한 줄, 누르면 날씨 · 무게 · 거리로 펼친다 (사장님 요청)
+                const bk = paySurBreak(list);
+                const sur = sa ? `<div class="pay-dd-row sur tap" role="button" tabindex="0" onclick="payDdSurOpen=!payDdSurOpen; payRender();"><span>할증<small>${sl.length}건 ${payDdSurOpen ? '▴' : '▾'}</small></span><b>${sa.toLocaleString()}원</b><em></em></div>
+                    ${payDdSurOpen ? [['w', '날씨'], ['m', '무게'], ['d', '거리']].filter(([k]) => bk[k].a > 0)
+                        .map(([k, t]) => `<div class="pay-dd-row brk"><span>${t}<small>${bk[k].n}건</small></span><b>${bk[k].a.toLocaleString()}원</b><em></em></div>`).join('') : ''}` : '';
+                const sub = list.reduce((s, x) => s + x.rate + x.sur, 0);
+                total += sub;
+                const dates = [...new Set(list.filter(x => x.p).map(x => payMD(x.p.at)))].join(', ');
+                return `<div class="pay-dd-sec ${paid ? 'ok' : 'wait'}">
+                    <div class="pay-dd-h"><span>${paid ? `지급완료${dates ? ` <small>${dates} 지급</small>` : ''}` : '미지급'}</span><em>${list.length}건</em></div>
+                    ${base}${sur}
+                    <div class="pay-dd-row sub"><span>소계</span><b>${sub.toLocaleString()}원</b><em></em></div>
                 </div>`;
-            }).join('');
-            const surRow = sur ? `<div class="pay-dd-row sur">
-                    <span>할증(날씨)<small>${sur.toLocaleString()}원 × ${cnt}건</small></span>
-                    <b>${(sur * cnt).toLocaleString()}원</b><em></em>
-                </div>` : '';
-            total += sur * cnt;
-            // [신규 2026-10-27] 집 할증 (힘든 배달) — 집마다 금액 · 이유
-            const hsRows = payCover(r).filter(x => x.dd === dd && x.hs > 0).map(x => {
-                total += x.hs;
-                return `<div class="pay-dd-row sur"><span>할증(무게)</span><b>${x.hs.toLocaleString()}원</b><em></em></div>`;
-            }).join('');
+            };
+            const body = sec(items.filter(x => x.p), true) + sec(items.filter(x => !x.p), false);
             return `<div class="pay-dd">
-                <div class="pay-dd-t">${m}/${parseInt(dd)} (${W[new Date(y, m - 1, parseInt(dd)).getDay()]}) · ${cnt}건
+                <div class="pay-dd-t">${m}/${parseInt(dd)} (${W[new Date(y, m - 1, parseInt(dd)).getDay()]}) · ${items.length}건
                     <button type="button" onclick="payMineDayPick('')" aria-label="닫기">×</button></div>
-                ${rows}${surRow}${hsRows}
+                ${body}
                 <div class="pay-dd-row sum"><span>합계</span><b>${total.toLocaleString()}원</b><em></em></div>
             </div>`;
+        }
+        // 가게 달력 — 기사를 안 고르고 날짜를 누르면 그날 전체 (사람별)
+        function payAllDayHtml() {
+            if (!payMineDay) return '';
+            return payDaySplitHtml(payMineDay, payByRider().filter(r => (r.days[payMineDay] || []).length));
+        }
+        // 기사 화면 · 가게에서 기사를 골랐을 때 — 그 사람 것 (단가별)
+        function payMineDayHtml(r) {
+            if (!payMineDay || !(r.days[payMineDay] || []).length) return '';
+            return payDaySplitHtml(payMineDay, [r]);
         }
         /* [신규] 할증 줄 — 정산 요약 바로 아래. 그날 배달한 모든 기사에게 건당 이만큼 더 붙는다.
            가게: 날짜 칩을 누르면 고치기, '＋'로 새로 적기. 기사: 보기만. */
@@ -3560,23 +4042,10 @@
                 amounts = {};
                 payByRider().forEach(r => { const a = payDayAmounts(r); Object.keys(a).forEach(dd => { amounts[dd] = (amounts[dd] || 0) + a[dd]; }); });
             }
-            const sel = (paySurPick && paySurPick !== '+') ? paySurPick : '';
-            let editor = '';
-            if (sel) {
-                const W = ['일', '월', '화', '수', '목', '금', '토'];
-                const [y, m] = month.split('-').map(Number);
-                const cur = paySurOf(sel);
-                editor = `
-                    <div class="pay-sur-edit">
-                        <input type="hidden" id="pay-sur-date" value="${month}-${sel}">
-                        <span class="pay-sur-day">${m}/${parseInt(sel)} (${W[new Date(y, m - 1, parseInt(sel)).getDay()]}) · ${counts[sel] || 0}건</span>
-                        <span class="pay-sur-t">할증(날씨)</span>
-                        <label class="pay-rate"><input type="text" inputmode="numeric" id="pay-sur-amt" placeholder="건당" aria-label="건당 할증" value="${cur ? cur.toLocaleString() : ''}" oninput="const n=payDigits(this.value);this.value=n?n.toLocaleString():''"></label>
-                        <button type="button" class="go" onclick="paySurSave()">저장</button>
-                        ${cur ? `<button type="button" onclick="paySurSave(true)">삭제</button>` : ''}
-                        <button type="button" onclick="paySurEdit('')">닫기</button>
-                    </div>`;
-            }
+            // [신규 2026-10-27] 그날 할증 합 — 금액 밑에 '+할증'으로 (사장님 요청)
+            const surAmts = {};
+            (who ? [who] : payByRider()).forEach(r => { const a = payDaySurAmounts(r); Object.keys(a).forEach(dd => { surAmts[dd] = (surAmts[dd] || 0) + a[dd]; }); });
+            // [수정 2026-10-27] 할증(날씨)는 이제 '배정'에서 정한다 (사장님 요청). 정산 달력은 보기만 — 날짜를 눌러도 고치는 칸이 안 뜬다
             return `
                 <div class="pay-sur pay-mcal${who ? ' who' : ''}">
                     ${payMonthNavHtml()}
@@ -3584,10 +4053,10 @@
                         ${who
                             ? `<span class="pay-sur-t" style="color:var(--text-main);">${gEsc(who.name || '이름 없음')}</span><span class="pay-sur-none">건수 · 금액</span>
                                <button type="button" class="pay-cal-all" onclick="payToggleRider('${encAttr(who.uid)}')">전체 보기</button>`
-                            : `<span class="pay-sur-t" style="color:var(--text-sub);">전체</span><span class="pay-sur-none">건수 · 금액 · 날짜를 누르면 할증(날씨)</span>`}
+                            : `<span class="pay-sur-t" style="color:var(--text-sub);">전체</span><span class="pay-sur-none">건수 · 금액 · 날짜를 누르면 내역</span>`}
                     </div>
-                    ${gCalHtml(month, counts, sel, 'paySurEdit', paySurOf, amounts)}
-                    ${editor}
+                    ${gCalHtml(month, counts, payMineDay, 'payMineDayPick', null, amounts, surAmts)   /* [수정 2026-10-27] 날씨 마크(주황 칸) 뺌 — 할증은 칸 안 '+금액'으로 */}
+                    ${who ? payMineDayHtml(who) : payAllDayHtml()}
                 </div>`;
         }
         /* [신규] 달력 위 ‹ 2026년 10월 › — 좌우로 달을 넘긴다 (위 달 고르기와 같은 값). 고른 사람은 그대로 둔다.
@@ -3639,6 +4108,7 @@
                     if (r2.ok) delete paySurcharge[old];
                 }
                 if (amt) paySurcharge[dd] = amt; else delete paySurcharge[dd];
+                asgWeather[month] = Object.assign({}, paySurcharge);   // [신규 2026-10-27] 카드 딱지도 맞춘다
                 paySurPick = '';
                 showToast(amt ? `${parseInt(month.slice(5))}/${parseInt(dd)} 할증(날씨) ${amt.toLocaleString()}원` : '할증(날씨) 삭제');
                 payRender();
@@ -3652,7 +4122,7 @@
             // [수정 2026-10-27] 어느 지급이 덮었는지는 payCover 로 (기간 지급 때문에)
             payCover(r).forEach(x => {
                 const rate = x.p ? (parseInt(x.p.rate) || 0) : rateNow;
-                amt[x.dd] = (amt[x.dd] || 0) + rate + paySurOf(x.dd) + (x.hs || 0);
+                amt[x.dd] = (amt[x.dd] || 0) + rate + (x.ww || 0) + (x.hs || 0);
             });
             return amt;
         }
@@ -3916,7 +4386,7 @@
 
         /* [신규] 한 달 달력 (배달 기록·정산이 같이 쓴다). 칸마다 날짜(작게)·그날 건수(크게)·할증(주황).
              counts : { DD: 건수 }  sel : 고른 'DD'  onPick : 누를 때 부를 함수 이름(없으면 못 누름)  surOf : DD → 할증 */
-        function gCalHtml(month, counts, sel, onPick, surOf, amounts) {   // amounts : { DD: 금액 } 주면 할증 대신 그날 금액
+        function gCalHtml(month, counts, sel, onPick, surOf, amounts, surAmts) {   // amounts : { DD: 금액 } 주면 할증 대신 그날 금액. [신규 2026-10-27] surAmts : { DD: 할증 합 } 주면 금액 밑에 '+할증'
             const [y, m] = month.split('-').map(n => parseInt(n));
             const first = new Date(y, m - 1, 1).getDay(), last = new Date(y, m, 0).getDate();
             const today = dlogYmd(new Date());
@@ -3928,7 +4398,7 @@
                 const cls = `pay-cal-d gcal-d ${n ? 'on' : 'off'}${(first + d - 1) % 7 === 0 ? ' sun' : ''}${sur ? ' sur' : ''}${sel === dd ? ' sel' : ''}${`${month}-${dd}` === today ? ' today' : ''}`;
                 const inner = `<i>${d}</i><b>${n || '–'}</b>${amounts
                     ? (n && amounts[dd] ? `<em class="a">${amounts[dd].toLocaleString()}</em>` : '')
-                    : (sur ? `<em>+${sur.toLocaleString()}</em>` : '')}`;
+                    : (sur ? `<em>+${sur.toLocaleString()}</em>` : '')}${surAmts && n && surAmts[dd] ? `<em class="hs">+${surAmts[dd].toLocaleString()}</em>` : ''}`;
                 cells.push(onPick
                     ? `<button type="button" class="${cls}" onclick="${onPick}('${dd}')">${inner}</button>`
                     : `<span class="${cls}">${inner}</span>`);
@@ -3970,7 +4440,7 @@
                 const hs = parseInt(ha.sur) || 0;
                 return `<div class="dlog-row">
                     <span class="t">${hm(r.at)}</span>
-                    <span class="h"><b>${gEsc(place)}${r.manual ? ' <span class="man-tag">✍️ 수기</span>' : ''}</b><span>${gEsc(r.name || '')}${r.items ? ` · ${r.items}개` : ''}${r.manual && r.by ? `${r.name ? ' · ' : ''}${gEsc(r.by)} 추가` : ''}</span>${hs ? `<span class="asg-b sur" style="align-self:flex-start; margin-top:2px;">할증(무게) +${hs.toLocaleString()}</span>` : ''}</span>
+                    <span class="h"><b>${gEsc(place)}${r.manual ? ' <span class="man-tag">✍️ 수기</span>' : ''}</b><span>${gEsc(r.name || '')}${r.items ? ` · ${r.items}개` : ''}${r.manual && r.by ? `${r.name ? ' · ' : ''}${gEsc(r.by)} 추가` : ''}</span>${hs ? `<span class="asg-b sur" style="align-self:flex-start; margin-top:2px;">할증(무게) +${hs.toLocaleString()}</span>` : ''}${parseInt(ha.dist) ? `<span class="asg-b sur" style="align-self:flex-start; margin-top:2px;">할증(거리) +${parseInt(ha.dist).toLocaleString()}</span>` : ''}</span>
                     <span class="r">${gEsc(r.riderName || '')}${payIsStore() ? `<span class="dlog-btns"><button type="button" class="dlog-ph" onclick="dlogSurEdit('${encAttr(r.house)}')">할증(무게)</button><button type="button" class="man-del" onclick="dlogDel('${encAttr(r.house)}')">삭제</button>${dlogPhotoKey(r)
                         ? `<button type="button" class="dlog-ph" onclick="dlogPhoto('${encAttr(r.house)}')">사진</button>`
                         : `<button type="button" class="dlog-ph" disabled title="사진 없음">사진</button>`}</span>` : ''}</span>
@@ -4515,7 +4985,7 @@
             // "전체" 버튼 생성
             const allBtn = document.createElement('button');
             allBtn.className = `btn-select dong-btn ${activeDong === '전체' ? 'active' : ''}`;
-            allBtn.innerHTML = `<span style="display:block; line-height:1.15;">전체</span><span style="display:block; font-size:11px; font-weight:800; line-height:1.15; opacity:0.85;">${getDeliveryProgressText(aptOrders)}</span>`;   // [수정 2026-10-24] 아파트 단추처럼 두 줄 (사장님 요청)
+            allBtn.innerHTML = `<span style="display:block; line-height:1.15;">전체</span><span style="display:block; font-size:11px; font-weight:800; line-height:1.15; opacity:0.85;">${asgOn ? asgAptLabel(aptOrders) : getDeliveryProgressText(aptOrders)}</span>`;   // [수정 2026-10-24] 아파트 단추처럼 두 줄 (사장님 요청) · [수정 2026-10-27] 배정 중이면 미배정 수
             allBtn.onclick = () => {
                 activeDong = "전체";
                 lastDongByApt[gAptKey(activeApartment)] = "전체"; // 이 아파트에서 마지막으로 본 동
@@ -4528,7 +4998,7 @@
             dongs.forEach(dong => {
                 const btn = document.createElement('button');
                 btn.className = `btn-select dong-btn ${dong === activeDong ? 'active' : ''}`;
-                btn.innerHTML = `<span style="display:block; line-height:1.15;">${dong}</span><span style="display:block; font-size:11px; font-weight:800; line-height:1.15; opacity:0.85;">${getDeliveryProgressText(dongGroups[dong])}</span>`;   // [수정 2026-10-24] 아파트 단추처럼 두 줄
+                btn.innerHTML = `<span style="display:block; line-height:1.15;">${dong}</span><span style="display:block; font-size:11px; font-weight:800; line-height:1.15; opacity:0.85;">${asgOn ? asgAptLabel(dongGroups[dong]) : getDeliveryProgressText(dongGroups[dong])}</span>`;   // [수정 2026-10-24] 아파트 단추처럼 두 줄 · [수정 2026-10-27] 배정 중이면 미배정 수
                 btn.onclick = () => {
                     activeDong = dong;
                     lastDongByApt[gAptKey(activeApartment)] = dong; // 이 아파트에서 마지막으로 본 동
@@ -4689,9 +5159,9 @@
             // [수정] 1·2 / 3·4 두 칸으로 못 박아 두었는데, 아파트마다 라인 수가 달라 맞지 않았다.
             //  이제 '🚪 비번' 창에서 정한 호수 칸을 그대로 읽어 보여 준다. 고치는 것도 거기서 한다.
             // [신규 2026-10-27] 배정 화면에서 아파트를 골랐으면 맨 위에 '통째로' 줄
-            if (asgOn && activeApartment !== "전체") {
+            if (asgOn) {   // [수정 2026-10-27] 아파트 '전체'일 때도 ('오늘 전체 통째로')
                 const ac = document.createElement('div');
-                ac.innerHTML = asgAptCardHtml(activeApartment);
+                ac.innerHTML = asgAptCardHtml(activeApartment, activeDong);
                 listContainer.appendChild(ac.firstElementChild || ac);
             }
             if (!asgOn && activeDong !== "전체" && activeApartment !== "전체" && activeApartment !== "기타") {   // [수정 2026-10-27] 배정 화면에선 비번 카드 뺌
@@ -6026,9 +6496,10 @@
         .asg-top { display:flex; align-items:center; gap:8px; font-size:14px; font-weight:800; color:#9a3412; }
         .asg-top b { font-weight:900; color:#c2410c; }
         .asg-top > button { margin-left:auto; }
-        .asg-dirty { margin-left:auto; font-style:normal; font-size:11.5px; font-weight:900; color:#fff; background:#ea580c; padding:2px 8px; border-radius:999px; }
+        .asg-dot { display:inline-block; width:7px; height:7px; margin-left:5px; border-radius:50%; background:#fde047; vertical-align:middle; }   /* 저장 안 한 것이 있으면 저장 단추에 노란 점 */
         .asg-btns { display:flex; gap:6px; }
-        .asg-btns button, .asg-top > button { flex:1; height:36px; border:1px solid #fdba74; background:#fff; color:#9a3412; border-radius:8px; font:inherit; font-size:13.5px; font-weight:900; cursor:pointer; }
+        .asg-btns button { border-radius:10px !important; }   /* [수정 2026-10-27] 위 표와 모서리를 맞춤 */
+        .asg-btns button, .asg-top > button { flex:1; min-width:0; padding:0 4px; white-space:nowrap; height:36px; border:1px solid #fdba74; background:#fff; color:#9a3412; border-radius:8px; font:inherit; font-size:13.5px; font-weight:900; cursor:pointer; }
         .asg-top > button { flex:0 0 auto; padding:0 12px; height:30px; }
         .asg-btns button.go { border:none; background:#ea580c; color:#fff; }
         .asg-sub { font-size:12px; font-weight:900; color:#9a3412; }
@@ -6038,6 +6509,99 @@
         .asg-chip b { margin-left:2px; font-weight:900; }
         .asg-chip.on { border-color:#ea580c; background:#ea580c; color:#fff; }
         .asg-chip.off { border-style:dashed; border-color:#ea580c; color:#c2410c; }
+        /* [신규 2026-10-27] 배정 중 아파트 단추 — 숫자(미배정/전체)는 주황, 고른 단추는 주황 바탕에 흰 글씨 */
+        .asg-cnt { color:#ea580c; opacity:1; }
+        .asg-mode .btn-select.apt-btn.active { background-color:#ea580c; border-color:#ea580c; }
+        .asg-mode .apt-btn.active .asg-cnt, .dong-btn.active .asg-cnt { color:#fff; }
+        /* [수정 2026-10-27] 띠의 출근 줄 — 왼쪽 출근한 사람 칩, 오른쪽 '출근' 단추 (누르면 출근 창) */
+        .asg-shift { display:flex; align-items:flex-start; gap:8px; }
+        .asg-shift .asg-chips { flex:1; min-width:0; }
+        .asg-chip { cursor:default; display:inline-flex; align-items:center; }
+        .asg-sur2 { gap:6px; }
+        .asg-sur2 em { font-style:normal; font-size:12px; font-weight:800; color:var(--text-sub); margin-left:4px; }
+        .asg-sur2 .pay-rate { width:78px; }
+        .asg-sur2 input.def { color:#94a3b8; }   /* 체크 안 한 거리 — 체크하면 이 금액으로 붙는다 */
+        /* 할증 한 칸 — [이름 | 금액] 을 테두리 하나로. 값이 들어간(체크된) 칸은 주황 */
+        /* [수정 2026-10-27] 카드 할증 줄 — 칸 안의 칸 없이 '☐ 이름 금액' 셋을 고르게 (사장님 요청). 켜지면 주황 글씨 */
+        /* [수정 2026-10-27] 할증 셋을 표 하나로 (사장님 요청) — 칸마다 위 '☐ 이름'(누르면 켜고 끔), 아래 금액(누르면 통째로 골라져 바로 씀) */
+        .asg-sur3 { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); border:1.5px solid var(--border); border-radius:10px; overflow:hidden; background:#fff; }
+        .asg-it { display:flex; flex-direction:column; align-items:stretch; min-width:0; color:#94a3b8; }
+        .asg-it + .asg-it { border-left:1px solid #e2e8f0; }
+        .asg-it .t { display:flex; align-items:center; justify-content:center; gap:4px; height:30px; border:none; border-bottom:1px solid #e2e8f0; background:#f8fafc; color:inherit; font:inherit; font-size:12.5px; font-weight:900; cursor:pointer; white-space:nowrap; }
+        .asg-it .t i { width:15px; height:15px; border:2px solid #cbd5e1; border-radius:4px; font-style:normal; font-size:10px; line-height:11px; text-align:center; color:#fff; background:#fff; }
+        .asg-it input { width:100%; height:34px; box-sizing:border-box; padding:0 6px; border:none; background:transparent; font:inherit; font-size:15px; font-weight:800; text-align:center; color:#94a3b8; font-variant-numeric:tabular-nums; }
+        .asg-it input:focus { outline:none; background:var(--blue-light); color:var(--text-main); }
+        .asg-it.on .t { background:#fff7ed; color:#c2410c; border-bottom-color:#fed7aa; }
+        .asg-it.on .t i { border-color:#ea580c; background:#ea580c; }
+        .asg-it.on input { color:#c2410c; }
+        /* [신규 2026-10-27] 카드의 '날씨' 단추 — 켜짐(주황) / 이 집만 뺌(흰색) */
+        .asg-wck { flex:0 0 auto; display:inline-flex; align-items:center; gap:3px; height:36px; padding:0 7px; border:1.5px solid var(--border); border-radius:9px; background:#f8fafc; color:var(--text-sub); font:inherit; font-size:12px; font-weight:900; cursor:pointer; white-space:nowrap; }
+        .asg-wck i { width:15px; height:15px; border:2px solid #cbd5e1; border-radius:4px; font-style:normal; font-size:10px; line-height:11px; text-align:center; color:#fff; background:#fff; }
+        .asg-wck b { margin-left:2px; font-weight:800; color:#94a3b8; }
+        .asg-wck.on { border-color:#ea580c; background:#fff7ed; color:#c2410c; }
+        .asg-wck.on i { border-color:#ea580c; background:#ea580c; }
+        .asg-wck.on b { color:#c2410c; }
+        .asg-sur2 .asg-fld .t { padding:0 6px !important; }
+        .asg-sur2 .asg-fld input { padding:0 6px !important; font-size:13.5px !important; }
+        .asg-fld { flex:1; min-width:0; display:flex; align-items:stretch; height:36px; border:1.5px solid var(--border); border-radius:9px; background:#fff; overflow:hidden; }
+        .asg-fld .t { flex:0 0 auto; display:flex; align-items:center; gap:4px; padding:0 9px; border:none; border-right:1px solid #e2e8f0; background:#f8fafc; color:var(--text-sub); font:inherit; font-size:12.5px; font-weight:900; white-space:nowrap; }
+        .asg-fld button.t { cursor:pointer; }
+        .asg-fld .t i { width:15px; height:15px; border:2px solid #cbd5e1; border-radius:4px; font-style:normal; font-size:10px; line-height:11px; text-align:center; color:#fff; background:#fff; }
+        .asg-fld input { flex:1; min-width:0; width:100%; border:none; padding:0 8px; font:inherit; font-size:14px; font-weight:800; text-align:right; color:var(--text-main); background:transparent; font-variant-numeric:tabular-nums; }
+        .asg-fld input:focus { outline:none; }
+        .asg-fld:focus-within { border-color:var(--blue); }
+        .asg-fld.on { border-color:#ea580c; }
+        .asg-fld.on .t { background:#fff7ed; color:#c2410c; border-right-color:#fed7aa; }
+        .asg-fld.on .t i { border-color:#ea580c; background:#ea580c; }
+        /* [신규 2026-10-27] 할증 창 줄 — 이름 · 금액 칸 */
+        #asg-sur-body > * { flex-shrink:0; }
+        .asg-dist-row { display:flex; align-items:center; gap:10px; min-height:48px; padding:0 12px; border:1.5px solid #e2e8f0; border-radius:10px; background:#fff; }
+        .asg-dist-row .nm { flex:1; min-width:0; font-size:15px; font-weight:900; color:var(--text-main); }
+        .asg-dist-row .nm em { font-style:normal; margin-left:6px; font-size:11px; font-weight:900; color:#fff; background:#ea580c; padding:1px 6px; border-radius:999px; vertical-align:middle; }
+        .asg-dist-row .pay-rate { width:96px; flex:0 0 auto; }
+        .asg-shift-btn.on { background:#ea580c; color:#fff; }
+        /* 날씨 할증 줄 — 왼쪽을 누르면 체크(적용), 오른쪽 금액 */
+        .asg-w { padding:0 12px 0 0; }
+        .asg-w.on { border-color:#ea580c; background:#fff7ed; }
+        .asg-w .pick { flex:1; min-width:0; display:flex; align-items:center; gap:10px; align-self:stretch; padding:0 12px; border:none; background:transparent; font:inherit; text-align:left; cursor:pointer; }
+        .asg-w .ck { flex:0 0 auto; width:22px; height:22px; border:2px solid #cbd5e1; border-radius:6px; display:flex; align-items:center; justify-content:center; font-size:14px; font-weight:900; color:#fff; }
+        .asg-w.on .ck { border-color:#ea580c; background:#ea580c; }
+        /* [신규 2026-10-27] 띠 숫자 표 — 칸마다 이름 · 맡은 집 수. 사람이 많으면 다음 줄로 */
+        /* [수정 2026-10-27] 띠 숫자 표 — 한 그리드. 칸 수(열)는 asgRenderBand 가 화면 너비로 정한다.
+           출근 · 할증은 맨 윗줄 오른쪽 두 칸, 사람이 많으면 아랫줄로 이어진다. 칸 줄은 그림자로 — 빈 자리는 흰 채로 */
+        .asg-tbl { display:grid; border:1px solid #fed7aa; border-radius:10px; overflow:hidden; background:#fff; }
+        .asg-tbl > div, .asg-tbl > .btn { padding:6px 2px; text-align:center; min-width:0; box-shadow:1px 0 0 #fed7aa, 0 1px 0 #fed7aa; }
+        .asg-tbl > .btn { border:none; font:inherit; cursor:pointer; background:#fff7ed; display:flex; flex-direction:column; justify-content:center; }
+        .asg-tbl > .btn span { color:#c2410c; font-weight:900; }
+        .asg-tbl > .btn b { font-size:14px; line-height:1.55; }
+        .asg-tbl > .btn.on { background:#ea580c; }
+        .asg-tbl > .btn.on span, .asg-tbl > .btn.on b { color:#fff; }
+        .asg-tbl .none b { color:#94a3b8; }
+        .asg-tbl span { display:block; font-size:11px; letter-spacing:-0.3px; font-weight:800; color:#64748b; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+        .asg-tbl b { display:block; font-size:18px; font-weight:900; color:#c2410c; line-height:1.15; font-variant-numeric:tabular-nums; }
+        .asg-tbl .un b { color:#dc2626; }
+        .asg-tbl .off { background:#f8fafc; }
+        .asg-tbl .off span { text-decoration:line-through; }
+        .asg-none { display:inline-flex; align-items:center; height:32px; padding:0 12px; border:1.5px dashed #fdba74; border-radius:999px; font-size:13px; font-weight:900; color:#c2410c; }   /* 출근자 ✕ */
+        .asg-shift-btn { flex:0 0 auto; display:flex; flex-direction:column; align-items:center; justify-content:center; width:64px; height:48px; border:1.5px solid #ea580c; background:#fff; color:#c2410c; border-radius:10px; font:inherit; font-size:14px; font-weight:900; line-height:1.15; cursor:pointer; }
+        .asg-shift-btn small { font-size:11px; font-weight:800; }
+        /* 출근 창 — 즐겨찾기 묶음이 맨 위, 줄을 누르면 출근(주황 ✓), 오른쪽 ★ 는 즐겨찾기 */
+        .asg-fav-hint { font-size:12.5px; font-weight:700; color:var(--text-sub); line-height:1.5; padding:4px 2px; }
+        .asg-fav-sec { padding:8px 2px 2px; font-size:12px; font-weight:900; color:var(--text-sub); }
+        #asg-fav-body > *, #asg-fav-list > * { flex-shrink:0; }   /* 사람이 많아도 찾기 칸·줄이 눌려 납작해지지 않게 */
+        .asg-fav-q { height:40px; box-sizing:border-box; padding:0 12px; border:1.5px solid var(--border); border-radius:10px; font:inherit; font-size:14px; font-weight:700; color:var(--text-main); background:var(--card-color); }
+        .asg-fav-q:focus { outline:none; border-color:var(--blue); }
+        .asg-fav-row { display:flex; align-items:stretch; border:1.5px solid #e2e8f0; background:#fff; border-radius:10px; overflow:hidden; }
+        .asg-fav-row.on { border-color:#ea580c; background:#fff7ed; }
+        .asg-fav-row .pick { flex:1; min-width:0; display:flex; align-items:center; gap:10px; min-height:48px; padding:0 12px; border:none; background:transparent; font:inherit; text-align:left; cursor:pointer; }
+        .asg-fav-row .ck { flex:0 0 auto; width:22px; height:22px; border:2px solid #cbd5e1; border-radius:6px; display:flex; align-items:center; justify-content:center; font-size:14px; font-weight:900; color:#fff; }
+        .asg-fav-row.on .ck { border-color:#ea580c; background:#ea580c; }
+        .asg-fav-row .nm { flex:1; min-width:0; font-size:15px; font-weight:900; color:var(--text-main); }
+        .asg-fav-row .nm em { font-style:normal; margin-left:6px; font-size:11.5px; font-weight:800; color:#94a3b8; }
+        .asg-fav-row .n { flex:0 0 auto; font-size:12px; font-weight:800; color:#c2410c; }
+        .asg-fav-row .star { flex:0 0 auto; width:48px; border:none; border-left:1px solid #e2e8f0; background:transparent; font-size:20px; color:#cbd5e1; cursor:pointer; }
+        .asg-fav-row .star.on { color:#f59e0b; }
+        .asg-fav-save { margin-top:10px; height:46px; border:none; background:#ea580c; color:#fff; border-radius:10px; font:inherit; font-size:15px; font-weight:900; cursor:pointer; }
         .asg-un { display:inline-flex; align-items:center; height:32px; padding:0 12px; border-radius:999px; background:#fee2e2; color:#b91c1c; font-size:13px; font-weight:900; }
         .asg-msg { font-size:12.5px; font-weight:800; color:#9a3412; }
         .asg-msg.warn { color:var(--red); }
@@ -6110,7 +6674,17 @@
     <!-- [신규] 정산 화면 모양 — 앱 색(모켓 초록·주황·회색)을 그대로 쓴다.
          요약을 맨 위에, 기사는 한 목록 안의 줄로, 단가·기사·금액·지급은 칸을 맞춰 세운다. -->
     <style>
-        .pay-sum { display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:1px; background:var(--border); border:1px solid var(--border); border-radius:var(--radius-sub); overflow:hidden; margin-bottom:12px; }
+        /* [수정 2026-10-27] 요약 4칸 — 총 건수 · 할증(누르면 종류별) · 총액 · 미지급 */
+        .pay-sum .tap { cursor:pointer; }
+        .pay-sum > div:not(.brk) { padding:8px 6px !important; }
+        .pay-sum > div:not(.brk) b { font-size:13.5px !important; letter-spacing:-0.3px; }
+        .pay-sum b.sur { color:#c2410c; }
+        .pay-sum .brk { grid-column:1 / -1; padding:6px 10px 8px; }
+        .pay-sum .brk p { display:flex; align-items:center; gap:8px; margin:0; padding:3px 0; font-size:12.5px; font-weight:800; color:var(--text-sub); }
+        .pay-sum .brk p span { flex:1; color:#c2410c; font-size:12.5px; }
+        .pay-sum .brk p em { font-style:normal; }
+        .pay-sum .brk p b { font-size:13.5px; color:var(--text-main); }
+        .pay-sum { display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:1px; background:var(--border); border:1px solid var(--border); border-radius:var(--radius-sub); overflow:hidden; margin-bottom:12px; }
         .pay-sum > div { background:var(--bg-color); padding:9px 10px; display:flex; flex-direction:column; gap:2px; min-width:0; }
         .pay-sum span { font-size:11px; font-weight:800; color:var(--text-sub); }
         .pay-sum b { font-size:15px; font-weight:900; color:var(--text-main); font-variant-numeric:tabular-nums; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
@@ -6197,7 +6771,7 @@
         /* [신규] 기사 세부 달력 — 건수 밑에 그날 금액 */
         .pay-cal-amt { height:48px; }
         .pay-cal-amt em { font-style:normal; font-size:9.5px; font-weight:800; color:var(--primary-hover); line-height:1.1; font-variant-numeric:tabular-nums; letter-spacing:-0.3px; }
-        .pay-cal-amt.sur em { color:#c2410c; }
+        /* [수정 2026-10-27] 할증(날씨) 날도 총금액은 초록 그대로 — 할증은 밑의 주황 '+금액', 날씨 날은 주황 칸으로 (사장님 지적: 색이 달라 헷갈림) */
         /* [신규 2026-10-27] 기사 달력 — 다 지급된 날은 초록 칸 + 금액 밑에 '지급완료' (할증 날이면 주황 테두리는 그대로).
            글자가 한 줄 늘어서 기사 달력 칸은 조금 높게 */
         .pay-me .pay-cal-amt { height:58px; }
@@ -6214,9 +6788,38 @@
         .pay-dd-row em { font-style:normal; font-size:11px; font-weight:800; text-align:right; white-space:nowrap; }
         .pay-dd-row em.ok { color:var(--primary-hover); }
         .pay-dd-row em.wait { color:var(--secondary); }
+        /* [수정 2026-10-27] 날짜 내역 묶음 — 지급완료(초록 머리) / 미지급(주황 머리), 묶음마다 소계 */
+        /* [수정 2026-10-27] 칸을 덜 나누고 넓직하게 (사장님 요청) — 묶음 테두리·줄마다 선을 빼고, 줄 간격을 넓혔다 */
+        .pay-dd-sec { margin-top:12px; }
+        .pay-dd-sec .pay-dd-row { border-top:none; min-height:30px; }
+        .pay-dd-sec .pay-dd-row.sub { border-top:1px solid #e2e8f0; margin-top:2px; }
+        .pay-dd-sec .pay-dd-row.brk { border-top:none; min-height:24px; }
+        .pay-dd-h { display:flex; align-items:center; justify-content:space-between; padding:0 0 4px; margin-bottom:2px; font-size:13px; font-weight:900; border-bottom:2px solid currentColor; }
+        .pay-dd-sec.ok .pay-dd-h { color:var(--primary-hover); }
+        .pay-dd-sec.wait .pay-dd-h { color:var(--secondary); }
+        .pay-dd-h small { margin-left:4px; font-size:11px; font-weight:800; opacity:0.85; }
+        .pay-dd-h em { font-style:normal; font-size:11.5px; }
+        .pay-dd-row.sub span { font-weight:900; color:var(--text-main); }
+        .pay-dd-row.tap { cursor:pointer; }
+        .pay-dd-row.brk { min-height:24px; border-top:1px dashed #fed7aa; padding-left:12px; font-size:12px; }
+        .pay-dd-row.brk span, .pay-dd-row.brk b { color:#c2410c; font-weight:800; }
+        .pay-dd-row.brk span small { margin-left:4px; font-size:11px; }
+        .pay-dd-row.sub b { color:var(--text-main); }
+        .pay-dd-sec .pay-dd-row { grid-template-columns:1fr auto; }
+        .pay-dd-sec .pay-dd-row em { display:none; }
+        .pay-dd > .pay-dd-row.sum { margin-top:12px; border-top:2px solid #cbd5e1; min-height:38px; font-size:14px; grid-template-columns:1fr auto; }
+        .pay-dd > .pay-dd-row.sum em { display:none; }
+        /* [수정 2026-10-27] 칸 안의 칸이 답답해서 — 날짜 내역은 테두리·바탕 없이 달력 밑에 선 하나로 이어진다 (사장님 요청) */
+        .pay-dd { margin:6px 12px 12px !important; padding:12px 2px 0 !important; border:none !important; border-top:1px solid #e2e8f0 !important; border-radius:0 !important; background:transparent !important; }
+        .pay-mcal .pay-dd { margin:6px 0 4px !important; }
+        /* [수정 2026-10-27] 지급 여부 딱지 — ✓ 날짜(초록) / 미지급(주황). 일부만 지급이면 딱지 두 개를 세로로 */
+        .pay-dd-row .pill { justify-self:end; display:inline-block; padding:2px 7px; border-radius:999px; font-style:normal; font-size:11px; font-weight:900; white-space:nowrap; line-height:1.4; }
+        .pay-dd-row .pill.ok { background:var(--primary-light); color:var(--primary-hover); border:1px solid #a7f3d0; }
+        .pay-dd-row .pill.wait { background:#fff7ed; color:var(--secondary); border:1px solid #fed7aa; }
+        .pay-dd-row em.mix { display:flex; flex-direction:column; align-items:flex-end; gap:2px; font-style:normal; }
         .pay-dd-row.sur span, .pay-dd-row.sur b { color:#c2410c; }
-        .pay-dd-row.sur span { padding:4px 0; line-height:1.25; }
-        .pay-dd-row.sur span small { display:block; font-size:11px; font-weight:700; opacity:0.85; }   /* 할증(날씨) 밑에 '500원 × 2건', 할증(무게) 밑에 이유 */
+        .pay-dd-row.sur span { white-space:nowrap; }
+        .pay-dd-row.sur span small { margin-left:4px; font-size:12px; font-weight:800; opacity:0.85; }   /* [수정 2026-10-27] '할증(날씨) 7건' 한 줄로 (사장님 요청) */
         .pay-dd-row.sum span { color:var(--text-main); font-weight:900; }
         .pay-dd-row.sum b { color:var(--primary-hover); }
         .pay-cal-d .pd { font-size:8.5px; font-weight:900; color:var(--primary-hover); line-height:1.15; letter-spacing:-0.4px; white-space:nowrap; }
@@ -6237,8 +6840,13 @@
         .pay-mcal { gap:4px; }
         .pay-mcal.who { border-color:var(--primary); box-shadow:0 0 0 1px var(--primary) inset; }
         .pay-mcal .gcal-d { height:48px; }
+        /* [신규 2026-10-27] 달력 칸 금액 밑 '+할증' (주황) — 한 줄 늘어서 칸을 조금 높인다 */
+        .pay-cal-d em.hs { display:block; font-style:normal; font-size:9px; font-weight:900; color:#c2410c; line-height:1.1; letter-spacing:-0.3px; font-variant-numeric:tabular-nums; }
+        .pay-mcal .gcal-d { height:58px !important; }
+        .pay-me .pay-cal-amt { height:66px !important; }
+        .gcal-d.sel em.hs { color:#fdba74 !important; }
         .gcal-d em.a { color:var(--primary-hover); font-size:9.5px; font-weight:800; letter-spacing:-0.3px; font-variant-numeric:tabular-nums; }
-        .gcal-d.sur em.a { color:#c2410c; }
+        .gcal-d.sur em.a { color:var(--primary-hover); }   /* [수정 2026-10-27] 날씨 날도 총금액은 초록 */
         /* [수정] 배달 기록·정산 창은 높이를 고정 — 달마다 내용 길이가 달라 창이 줄었다 늘었다 했다 */
         #pay-body, #dlog-body { flex:1; min-height:0; }
         #pay-body.gload, #dlog-body.gload { opacity:0.45; pointer-events:none; transition:opacity .15s; }
@@ -6262,6 +6870,9 @@
         .pay-hrow .c { text-align:center; }
         .pay-hrow .r { font-weight:900; }
         .pay-hrow .d { white-space:nowrap; }
+        .pay-hrow .s { color:#c2410c; }   /* [신규 2026-10-27] 할증 칸 */
+        .pay-hrow .s.tap { cursor:pointer; white-space:nowrap; }
+        .pay-hbrk { padding:4px 8px 6px; text-align:center; font-size:12px; font-weight:800; color:#c2410c; background:#fff7ed; border-top:1px dashed #fed7aa; }   /* 할증을 펼친 줄 — 날씨 · 무게 · 거리 */
         .pay-rng-n { display:block; font-size:9.5px; font-weight:800; color:var(--text-sub); line-height:1.1; }
         /* [신규 2026-10-27] 지급 창 — 기사 줄 바로 아래에 기간을 골라 지급 */
         .pay-paybox { background:var(--primary-light); border-top:1px solid #a7f3d0; padding:10px 10px 12px; display:flex; flex-direction:column; gap:8px; }
@@ -6270,10 +6881,21 @@
         .pay-paybox-dates input { flex:1; min-width:0; height:36px; box-sizing:border-box; padding:0 6px; border:1.5px solid var(--border); border-radius:8px; font:inherit; font-size:13.5px; font-weight:800; color:var(--text-main); background:var(--card-color); }
         .pay-paybox-dates span { font-weight:900; color:var(--text-sub); }
         .pay-paybox-q { display:flex; flex-wrap:wrap; gap:6px; }
+        .pay-paybox-q button.on { border-color:var(--primary); background:var(--primary); color:#fff; }
+        .pay-paybox-q { flex-wrap:nowrap !important; gap:4px !important; }
+        .pay-paybox-q button { flex:1 1 auto; min-width:0; padding:0 4px !important; white-space:nowrap; font-size:11.5px !important; }
+        .pay-paybox-dates.lock input { background:#f1f5f9; color:#94a3b8; border-color:#e2e8f0; }   /* '미지급 전부' — 날짜 잠금 */
+        .pay-paybox-dates.lock span { color:#cbd5e1; }
         .pay-paybox-q button { height:28px; padding:0 10px; border:1px solid var(--border); background:var(--card-color); color:var(--text-sub); border-radius:14px; font:inherit; font-size:12px; font-weight:800; cursor:pointer; }
         .pay-paybox-sum { font-size:13.5px; font-weight:800; color:var(--text-main); font-variant-numeric:tabular-nums; }
         .pay-paybox-sum b { color:var(--primary-hover); font-weight:900; }
         .pay-paybox-sum .warn { color:var(--secondary); }
+        /* [신규 2026-10-27] 지급 창 계산 — 단가 줄 · 할증 종류별 줄 · 합계 */
+        .pp-row { display:flex; justify-content:space-between; gap:8px; padding:2px 0; }
+        .pp-row b { color:var(--text-main) !important; }
+        .pp-row.sur, .pp-row.sur b { color:#c2410c !important; }
+        .pp-row.sum { border-top:1px solid #a7f3d0; margin-top:3px; padding-top:5px; }
+        .pp-row.sum b { color:var(--primary-hover) !important; font-size:15px; }
         .pay-paybox-btn { display:flex; gap:6px; }
         .pay-paybox-btn button { flex:1; height:38px; border:1px solid var(--border); background:var(--card-color); color:var(--text-sub); border-radius:8px; font:inherit; font-size:13.5px; font-weight:900; cursor:pointer; }
         .pay-paybox-btn button.go { flex:2; border:none; background:var(--primary); color:#fff; }
@@ -6399,6 +7021,35 @@
                 <!-- 폰 자판의 엔터로 잘못 저장되지 않게 단추로만 넣는다 -->
                 <button type="button" class="man-save" onclick="manualSave()">추가</button>
             </form>
+        </div>
+    </div>
+
+    <!-- [수정 2026-10-27] 출근 창 — 배정 띠의 '출근' 단추로 연다 (asgShiftOpen). 줄을 누르면 출근, ★ 는 즐겨찾기 -->
+    <div id="asg-fav-modal" style="display:none; position:fixed; z-index:10053; left:0; top:0; width:100%; height:100%; background:rgba(15,23,42,0.55); align-items:center; justify-content:center; padding:14px; box-sizing:border-box;" onclick="if(event.target===this) asgShiftClose()">
+        <div style="background:#fff; border-radius:16px; width:100%; max-width:440px; height:min(88vh, 760px); display:flex; flex-direction:column; overflow:hidden; box-shadow:0 20px 50px rgba(0,0,0,0.25);">
+            <div style="padding:13px 15px; border-bottom:1px solid #e2e8f0; display:flex; align-items:center; gap:8px;">
+                <div id="asg-fav-title" style="flex:1; font-size:15px; font-weight:900; color:#0f172a;">출근</div>
+                <span onclick="asgShiftClose()" style="flex:0 0 auto; font-size:24px; font-weight:800; color:#94a3b8; cursor:pointer; line-height:1;">&times;</span>
+            </div>
+            <div id="asg-fav-body" style="flex:1; overflow-y:auto; padding:12px 14px 16px; display:flex; flex-direction:column; gap:6px;"></div>
+            <!-- [수정 2026-10-27] 완료 단추는 목록 밖 맨 아래에 붙여 둔다 — 사람이 많아도 내리지 않고 누른다 (사장님 지적) -->
+            <div style="flex:0 0 auto; padding:10px 14px 14px; border-top:1px solid #e2e8f0; background:#fff;">
+                <button type="button" class="asg-fav-save" id="asg-fav-done" onclick="asgShiftClose()" style="width:100%; margin:0;">완료</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- [신규 2026-10-27] 할증 창 — 배정 띠의 '할증' 단추로 연다 (asgSurOpen). 할증(날씨) + 아파트별 할증(거리) 기본 단가 -->
+    <div id="asg-sur-modal" style="display:none; position:fixed; z-index:10053; left:0; top:0; width:100%; height:100%; background:rgba(15,23,42,0.55); align-items:center; justify-content:center; padding:14px; box-sizing:border-box;" onclick="if(event.target===this) asgSurClose()">
+        <div style="background:#fff; border-radius:16px; width:100%; max-width:440px; height:min(88vh, 760px); display:flex; flex-direction:column; overflow:hidden; box-shadow:0 20px 50px rgba(0,0,0,0.25);">
+            <div style="padding:13px 15px; border-bottom:1px solid #e2e8f0; display:flex; align-items:center; gap:8px;">
+                <div id="asg-sur-title" style="flex:1; font-size:15px; font-weight:900; color:#0f172a;">할증</div>
+                <span onclick="asgSurClose()" style="flex:0 0 auto; font-size:24px; font-weight:800; color:#94a3b8; cursor:pointer; line-height:1;">&times;</span>
+            </div>
+            <div id="asg-sur-body" style="flex:1; overflow-y:auto; padding:8px 14px 16px; display:flex; flex-direction:column; gap:6px;"></div>
+            <div style="flex:0 0 auto; padding:10px 14px 14px; border-top:1px solid #e2e8f0; background:#fff;">
+                <button type="button" class="asg-fav-save" onclick="asgSurClose()" style="width:100%; margin:0;">완료</button>
+            </div>
         </div>
     </div>
 
