@@ -3339,14 +3339,15 @@
             const out = [];
             if (asgOn) out.push(a && a.rider ? `<span class="asg-b who">${gEsc(asgNameOf(a.rider) || a.riderName || '')}</span>` : `<span class="asg-b un">미배정</span>`);
             else if (gIsStore() && a && a.rider) out.push(`<span class="asg-b who">담당 ${gEsc(asgNameOf(a.rider) || a.riderName || '')}</span>`);
-            if (a && parseInt(a.sur)) out.push(`<span class="asg-b sur">할증(무게) +${parseInt(a.sur).toLocaleString()}</span>`);
-            // [신규 2026-10-27] 할증(거리) — 배정 화면이면 단지 기본까지 셈, 아니면 저장된 값
-            const dv = (asgOn && cur && cur.ymd === parts.ymd) ? asgDistOf(asgDraft(cur), house, extractApartmentName(rep.address)) : (parseInt((a || {}).dist) || 0);
-            if (dv) out.push(`<span class="asg-b sur">할증(거리) +${dv.toLocaleString()}</span>`);
+            // [수정 2026-10-27] 마크 순서는 날씨 · 무게 · 거리 (정산·체크 칸과 같게 — 사장님 요청)
             // [신규 2026-10-27] 그날 할증(날씨) — 배정 화면이면 고치는 중인 값
             const dayW = (asgOn && cur && cur.ymd === parts.ymd) ? (asgDraft(cur).weather || 0) : (parseInt((asgWeather[parts.month] || {})[parts.day]) || 0);
             const ws = a && a.wSet ? (parseInt(a.w) || 0) : (a && a.noW ? 0 : dayW);   // [수정 2026-10-27] 집마다 날씨 (켬 · 끔 · 그날 값)
             if (ws) out.push(`<span class="asg-b sur">할증(날씨) +${ws.toLocaleString()}</span>`);
+            if (a && parseInt(a.sur)) out.push(`<span class="asg-b sur">할증(무게) +${parseInt(a.sur).toLocaleString()}</span>`);
+            // [신규 2026-10-27] 할증(거리) — 배정 화면이면 단지 기본까지 셈, 아니면 저장된 값
+            const dv = (asgOn && cur && cur.ymd === parts.ymd) ? asgDistOf(asgDraft(cur), house, extractApartmentName(rep.address)) : (parseInt((a || {}).dist) || 0);
+            if (dv) out.push(`<span class="asg-b sur">할증(거리) +${dv.toLocaleString()}</span>`);
             return out.length ? `<div class="asg-badges">${out.join('')}</div>` : '';
         }
 
