@@ -929,7 +929,8 @@
                 if (!owner && staff.approvedBy === 'first') {
                     try { await db(`staff/${user.uid}/owner.json`, { method: 'PUT', body: 'true' }); owner = true; } catch (e) { }
                 }
-                window.gStaffMe = { uid: user.uid, role: staff.role, owner, name: staff.name || user.displayName || '', email: staff.email || user.email || '', phone: staff.phone || '' };
+                // [수정 2026-10-27] realRole — 원래 권한. 가게 사람이 '기사 전환'으로 role 을 rider 로 바꿔 봐도 이것은 그대로
+                window.gStaffMe = { uid: user.uid, role: staff.role, realRole: staff.role, owner, name:staff.name || user.displayName || '', email: staff.email || user.email || '', phone: staff.phone || '' };
                 hide();
                 openGate();
                 return;
@@ -1089,6 +1090,9 @@
                 <!-- 동적 로드 -->
             </div>
         </div>
+
+        <!-- [신규 2026-10-27] 배정 화면 띠 — 설정 → 배정을 누르면 보인다 (asgRenderBand) -->
+        <div id="asg-band" class="asg-band" style="display:none;"></div>
 
         <!-- 아파트 선택 버튼 그룹 -->
         <div class="swipe-container" id="apartment-buttons">
@@ -2313,6 +2317,12 @@
                 });
             }
 
+            // [신규 2026-10-27] 배정 — 기사 화면은 나에게 배정된 집만 (배정 안 한 날은 아무것도 안 보인다).
+            //  가게는 전부 보고, 카드에 담당·할증 표시를 달려고 그 달 배정을 받아 둔다.
+            asgRenderBand();
+            if (!gIsStore()) filtered = filtered.filter(asgMine);
+            else if (currentYear && currentMonth) asgEnsure(`${parseInt(currentYear)}-${String(parseInt(currentMonth)).padStart(2, '0')}`);
+
             // 3단계: 배달 완료/미완료 상태 토글 필터링
             const filterStatus = currentStatusFilter;
 
@@ -2382,7 +2392,7 @@
             if (apartments.length === 0) {
                 aptContainer.innerHTML = '<div style="font-size:13px; color:var(--text-sub); font-weight:700; padding:10px;">배달 건이 없습니다.</div>';
                 document.getElementById('dong-section').style.display = 'none';
-                document.getElementById('order-list').innerHTML = '<div style="text-align:center; padding:50px; font-weight:800; color:var(--text-sub);">조건에 일치하는 배달 주문이 없습니다.</div>';
+                document.getElementById('order-list').innerHTML = `<div style="text-align:center; padding:50px; font-weight:800; color:var(--text-sub);">${gIsStore() ? '조건에 일치하는 배달 주문이 없습니다.' : '배정된 배달이 없습니다.'}</div>`;   // [수정 2026-10-27] 기사는 배정된 것만 보인다
                 return;
             }
 
@@ -2416,7 +2426,8 @@
             apartments.forEach(apt => {
                 const btn = document.createElement('button');
                 btn.className = `btn-select apt-btn ${apt === activeApartment ? 'active' : ''}`;
-                btn.innerHTML = `<span style="display:block; line-height:1.15;">${apt}</span><span style="display:block; font-size:11px; font-weight:800; line-height:1.15; opacity:0.85;">${getDeliveryProgressText(aptGroups[apt])}</span>`;
+                // [수정 2026-10-27] 배정 화면이면 둘째 줄에 그 단지를 맡은 사람
+                btn.innerHTML = `<span style="display:block; line-height:1.15;">${apt}</span><span style="display:block; font-size:11px; font-weight:800; line-height:1.15; opacity:0.85;">${asgOn ? asgAptLabel(aptGroups[apt]) : getDeliveryProgressText(aptGroups[apt])}</span>`;
                 btn.onclick = () => {
                     // [수정] 그 아파트에서 마지막으로 보던 동으로 되돌아간다 (없으면 전체)
                     activeDong = lastDongByApt[gAptKey(apt)] || "전체";
@@ -2581,11 +2592,352 @@
 
         function openSettings() {
             const me = window.gStaffMe, el = document.getElementById('staff-me-label');
-            if (el && me) el.innerText = `${me.name || me.email} (${me.role === 'store' ? '가게' : '기사'})`;
+            // [수정 2026-10-27] 이름만 — 괄호 속 별명은 뺀다: '강성훈 (오늘하루도)' → '강성훈(가게)'
+            //  가게 사람이 기사 화면을 보는 중이면 그 기사가 보는 그대로 '김기사(기사)' (오른쪽에 '관리자 전환')
+            if (el && me) el.innerText = me.viewUid
+                ? `${gNameOnly(me.viewName)}(기사)`
+                : `${gNameOnly(me.name) || me.email}(${me.realRole === 'store' ? '가게' : '기사'})`;
             // [수정] 가게 계정은 설정이 전부 보이고, 배달기사는 '정산'과 로그아웃만 보인다 (본인 건수·금액 보기용)
             const isStore = !!(me && me.role === 'store');
             document.querySelectorAll('#settings-modal [data-store-only]').forEach(b => { b.style.display = isStore ? '' : 'none'; });
+            gViewSwitchRender(false);
             document.getElementById('settings-modal').style.display = 'flex';
+        }
+        /* [신규 2026-10-27] 화면 전환 — 가게 사람만, 설정의 아이디 줄 바로 아래 (진짜 기사에게는 안 보인다. 사장님 요청).
+           '기사 전환'에서 기사를 고르면 그 기사가 보는 화면이 된다: 메뉴는 정산만, 정산은 그 기사 것만.
+           바뀌는 것은 화면뿐 — 배달완료 기록 등 서버에 남는 이름·uid 는 그대로 가게 사람 본인이다.
+           새로 고치거나 다시 열면 늘 관리자 화면으로 돌아온다 (기억하지 않음). */
+        function gNameOnly(s) { return String(s || '').replace(/\s*[(（][^)）]*[)）]\s*/g, ' ').trim(); }
+        // [수정 2026-10-27] 아이디를 누르면 — 관리자 화면이면 기사 고르기를 열고(다시 누르면 닫기), 기사 화면이면 관리자로 돌아온다
+        function gViewMeClick() {
+            const me = window.gStaffMe;
+            if (!me || me.realRole !== 'store') return;
+            if (me.role !== 'store') return gViewSwitch('');
+            const box = document.getElementById('set-view');
+            gViewSwitchRender(!(box && box.style.display !== 'none'));
+        }
+        async function gViewSwitchRender(picking) {
+            const box = document.getElementById('set-view');
+            const btn = document.getElementById('staff-me-btn'), hint = document.getElementById('staff-me-hint');
+            const me = window.gStaffMe;
+            if (!box) return;
+            const store = !!(me && me.realRole === 'store');
+            if (btn) btn.disabled = !store;   // 진짜 기사는 눌러도 아무 일 없다
+            if (hint) hint.textContent = !store ? '' : (me.role !== 'store' ? '관리자 전환 ›' : '기사 전환 ›');
+            if (!store || me.role !== 'store' || !picking) { box.style.display = 'none'; box.innerHTML = ''; return; }
+            box.style.display = '';
+            box.innerHTML = `<span>불러오는 중...</span>`;
+            // [수정 2026-10-27] 전부 고를 수 있다 — 맨 앞 '나', 그다음 기사, 그다음 다른 가게 사람(이름 뒤 '(가게)').
+            //  가게 사람이 배달한 것도 기사 화면으로 본다 (사장님 요청)
+            const meName = gNameOnly(me.name) || me.email || '나';
+            const riders = [{ uid: me.uid, name: `나(${meName})`, ready: true }]
+                .concat((await dlogLoadStaff()).filter(s => s.uid !== me.uid)
+                    .map(s => s.role === 'store' ? Object.assign({}, s, { name: `${gNameOnly(s.name) || s.name}(가게)`, ready: true }) : s));
+            box.innerHTML = riders.length
+                ? `<select id="set-view-pick" aria-label="볼 기사">${riders.map(s => `<option value="${encAttr(s.uid)}">${gEsc(s.ready ? s.name : (gNameOnly(s.name) || s.name))}</option>`).join('')}</select>
+                   <button type="button" class="go" onclick="gViewSwitch(document.getElementById('set-view-pick').value)">보기</button>
+                   <button type="button" onclick="gViewSwitchRender(false)">취소</button>`
+                : `<span>등록된 기사가 없습니다.</span><button type="button" onclick="gViewSwitchRender(false)">닫기</button>`;
+        }
+        // uidEnc 가 비었으면 관리자로 돌아온다
+        function gViewSwitch(uidEnc) {
+            const me = window.gStaffMe;
+            if (!me || me.realRole !== 'store') return;
+            if (uidEnc) {
+                const uid = decAttr(uidEnc);
+                const s = uid === me.uid ? { name: me.name || me.email || '' } : ((dlogStaff || []).find(x => x.uid === uid) || {});
+                me.role = 'rider'; me.viewUid = uid; me.viewName = s.name || '';
+                asgOn = false;   // [신규 2026-10-27] 기사 화면에선 배정 화면을 닫는다 (고치던 것은 남아 있다)
+            } else {
+                me.role = 'store'; delete me.viewUid; delete me.viewName;
+            }
+            // [수정 2026-10-27] 전환해도 설정 창은 그대로 두고 메뉴만 바꿔 다시 그린다 (사장님 요청)
+            try { renderFilteredData(); } catch (e) { console.warn(e); }
+            openSettings();
+            showToast(uidEnc ? `${gNameOnly(me.viewName)} 기사 화면` : '관리자 화면');
+        }
+
+        /* ── [신규 2026-10-27] 배정 — 그날 출근한 사람에게 집(손님)마다 배달을 나눠 준다 (사장님 요청) ──────
+             rider_assign / 2026-10 / 27 = { shift: { uid: 이름 }, h: { 집키: { rider, riderName, sur } }, at, by }
+           · 가게만 고친다: 설정 → 배정 → 배달 화면이 그대로 배정 화면으로 바뀐다 (위에 주황 띠, 카드 아래 담당 고르기).
+           · 기사는 자기에게 배정된 집만 본다. 배정 안 한 날·안 된 집은 기사에게 안 보인다 (사장님 정함).
+           · 할증(무게) — 힘든 배달 할증(sur, 금액만)도 집마다 여기 둔다. 배달 후에는 '배달 기록'에서 붙인다.
+             정산은 그 집을 실제로 배달한 사람에게 이 할증을 더한다. 기사는 이 자리를 못 고치니 할증을 스스로 못 붙인다.
+           · 집키는 배달 기록과 같은 gHouseKeyOf (손님 전화번호). 같은 손님 주문 여러 개 = 한 집 · 한 사람. */
+        let asgMonth = {};          // { 'YYYY-MM': { DD: 하루 } }  받아 둔 달 (저장된 것)
+        const _asgLoading = {};     // { 'YYYY-MM': 받는 중인 약속 }
+        const asgFailed = {};       // 못 받은 달 (규칙 게시 전 등)
+        let asgOn = false;          // 배정 화면인가
+        let asgDrafts = {};         // { 'YYYY-MM/DD': 고치는 중인 하루 }  저장 전
+        let asgDirty = {};          // { 'YYYY-MM/DD': true }  저장 안 한 날
+
+        // 날짜 탭에서 고른 하루 ('전체'면 null)
+        function asgCurParts() {
+            if (!currentYear || !currentMonth || !currentDay || currentDay === '전체') return null;
+            const y = parseInt(currentYear), m = parseInt(currentMonth), d = parseInt(currentDay);
+            if (!y || !m || !d) return null;
+            const month = `${y}-${String(m).padStart(2, '0')}`, day = String(d).padStart(2, '0');
+            return { month, day, key: `${month}/${day}`, ymd: `${month}-${day}`, label: `${m}월 ${d}일` };
+        }
+        // 그 달 배정을 받는다 (한 번만). 받고 나면 화면을 다시 그린다.
+        function asgEnsure(month) {
+            if (!month || asgMonth[month]) return Promise.resolve();
+            if (_asgLoading[month]) return _asgLoading[month];
+            return _asgLoading[month] = (async () => {
+                try {
+                    const r = await fetch(`${FIREBASE_DB_URL}rider_assign/${month}.json`);
+                    if (!r.ok) throw new Error('서버 응답 ' + r.status);
+                    asgMonth[month] = (await r.json()) || {};
+                    delete asgFailed[month];
+                } catch (e) {
+                    console.warn('배정 불러오기 실패:', month, e);
+                    asgMonth[month] = {};
+                    asgFailed[month] = true;
+                }
+                delete _asgLoading[month];
+                try { renderFilteredData(); } catch (e) { }
+            })();
+        }
+        // 저장된 그 집 배정 (없으면 null)
+        function asgSavedOf(month, day, house) {
+            return (((asgMonth[month] || {})[day] || {}).h || {})[house] || null;
+        }
+        // 기사 화면 — 나에게 배정된 집만 남긴다. 아직 안 받은 달이면 받으러 가고 일단 숨긴다.
+        function asgMine(item) {
+            const p = gDelivParts(item);
+            if (!p) return false;
+            if (!asgMonth[p.month]) { asgEnsure(p.month); return false; }
+            const a = asgSavedOf(p.month, p.day, gHouseKeyOf(item));
+            return !!(a && a.rider && a.rider === payMe().uid);
+        }
+        // 고치는 중인 하루 (처음이면 저장된 것을 베껴 온다)
+        function asgDraft(p) {
+            if (!asgDrafts[p.key]) {
+                const s = (asgMonth[p.month] || {})[p.day] || {};
+                asgDrafts[p.key] = JSON.parse(JSON.stringify({ shift: s.shift || {}, h: s.h || {} }));
+            }
+            return asgDrafts[p.key];
+        }
+        // 그날 집 목록 — { house, apt, done, rows }
+        function asgDayHouses(p) {
+            const map = {};
+            rawOrders.forEach(o => {
+                if (getOrderDateInfo(o).dateStr !== p.ymd) return;
+                const h = gHouseKeyOf(o);
+                if (!h) return;
+                const x = map[h] = map[h] || { house: h, apt: extractApartmentName(o.address), done: true, rows: [] };
+                x.rows.push(o);
+                if (o.status !== '배달완료') x.done = false;
+            });
+            return Object.values(map);
+        }
+        // 고를 수 있는 사람 — 나 · 기사 · 다른 가게 사람 (기사 전환 목록과 같은 차례)
+        function asgPeople() {
+            const me = window.gStaffMe || {};
+            const out = [{ uid: me.uid, name: gNameOnly(me.name) || me.email || '나' }];
+            (dlogStaff || []).forEach(s => { if (s.uid !== me.uid) out.push({ uid: s.uid, name: gNameOnly(s.name) || s.name }); });
+            return out;
+        }
+        function asgNameOf(uid) { const s = asgPeople().find(x => x.uid === uid); return s ? s.name : ''; }
+
+        async function asgOpen() {
+            if (!gIsStore()) return;
+            const p = asgCurParts();
+            if (!p) { showToast('날짜를 하루 골라 주세요.'); return; }
+            closeSettings();
+            asgOn = true;
+            showLoader('배정 불러오는 중...');
+            try { await Promise.all([dlogLoadStaff(), asgEnsure(p.month)]); } finally { hideLoader(); }
+            renderFilteredData();
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+        async function asgClose() {
+            if (Object.keys(asgDirty).length && !(await gAskBox('저장하지 않은 배정이 있어요.\n저장하지 않고 끝낼까요?', '그냥 끝내기'))) return;
+            asgOn = false; asgDrafts = {}; asgDirty = {};
+            renderFilteredData();
+        }
+        function asgTouch(p) { asgDirty[p.key] = true; renderFilteredData(); }
+        // 출근 켜기·끄기
+        function asgToggleShift(uidEnc) {
+            const p = asgCurParts(); if (!p) return;
+            const D = asgDraft(p), uid = decAttr(uidEnc);
+            if (D.shift[uid]) delete D.shift[uid]; else D.shift[uid] = asgNameOf(uid);
+            asgTouch(p);
+        }
+        // 집 하나의 담당을 바꾼다 (할증은 그대로)
+        function asgSet(houseEnc, uidEnc) {
+            const p = asgCurParts(); if (!p) return;
+            const D = asgDraft(p), house = decAttr(houseEnc), uid = decAttr(uidEnc);
+            const cur = D.h[house] || {};
+            D.h[house] = Object.assign({}, cur, { rider: uid, riderName: asgNameOf(uid) });
+            asgTouch(p);
+        }
+        // 아파트를 통째로 (그날 아직 안 끝난 집만)
+        function asgSetApt(aptEnc, uidEnc) {
+            const p = asgCurParts(); if (!p) return;
+            const D = asgDraft(p), apt = decAttr(aptEnc), uid = decAttr(uidEnc);
+            asgDayHouses(p).filter(x => x.apt === apt && !x.done).forEach(x => {
+                D.h[x.house] = Object.assign({}, D.h[x.house] || {}, { rider: uid, riderName: asgNameOf(uid) });
+            });
+            asgTouch(p);
+        }
+        // 할증 칸에서 손을 떼면 — 금액이 0 이면 할증을 뺀다
+        function asgSurFrom(el) {
+            const p = asgCurParts(); if (!p) return;
+            const box = el.closest('.asg-sur');
+            const house = decAttr(box.getAttribute('data-house'));
+            const amt = payDigits(box.querySelector('.a').value);
+            const D = asgDraft(p);
+            const cur = Object.assign({}, D.h[house] || {});
+            delete cur.why;   // [수정 2026-10-27] 이유 칸은 뺐다 (사장님 요청) — 예전 값도 지운다
+            if (amt) cur.sur = amt; else delete cur.sur;
+            if (Object.keys(cur).length) D.h[house] = cur; else delete D.h[house];
+            asgTouch(p);
+        }
+        /* 자동 나누기 — 출근한 사람에게, 아파트 순서대로 단지를 통째로, 건수가 비슷하게 이어서 나눈다.
+           이미 배달이 끝난 집은 그대로 둔다. 할증은 집에 붙어 있어 그대로 따라간다. */
+        function asgAuto() {
+            const p = asgCurParts(); if (!p) return;
+            const D = asgDraft(p);
+            const ppl = asgPeople().filter(s => D.shift[s.uid]);
+            if (!ppl.length) { showToast('출근한 사람을 먼저 눌러 주세요.'); return; }
+            const houses = asgDayHouses(p).filter(x => !x.done);
+            if (!houses.length) { showToast('나눌 배달이 없습니다.'); return; }
+            const byApt = {};
+            houses.forEach(x => (byApt[x.apt] = byApt[x.apt] || []).push(x));
+            const apts = Object.keys(byApt).sort((a, b) => {
+                if (a === '기타') return 1;
+                if (b === '기타') return -1;
+                const oa = gAptOrderIdx(a), ob = gAptOrderIdx(b);
+                if (oa !== ob) return oa - ob;
+                return (byApt[b].length - byApt[a].length) || a.localeCompare(b);
+            });
+            const per = houses.length / ppl.length;
+            let cum = 0;
+            apts.forEach(apt => {
+                const n = byApt[apt].length;
+                const s = ppl[Math.min(ppl.length - 1, Math.floor((cum + n / 2) / per))];
+                byApt[apt].forEach(x => { D.h[x.house] = Object.assign({}, D.h[x.house] || {}, { rider: s.uid, riderName: s.name }); });
+                cum += n;
+            });
+            asgTouch(p);
+            showToast(`${ppl.length}명에게 ${houses.length}집을 나눴어요. 저장을 눌러야 기사에게 보여요.`);
+        }
+        async function asgSave() {
+            const p = asgCurParts(); if (!p) return;
+            const D = asgDraft(p), me = window.gStaffMe || {};
+            const body = { shift: D.shift, h: D.h, at: Date.now(), by: gNameOnly(me.name) || me.email || '' };
+            showLoader('배정 저장 중...');
+            try {
+                const res = await fetch(`${FIREBASE_DB_URL}rider_assign/${p.month}/${p.day}.json`, {
+                    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+                });
+                if (!res.ok) throw new Error('서버 응답 ' + res.status);
+                (asgMonth[p.month] = asgMonth[p.month] || {})[p.day] = JSON.parse(JSON.stringify(body));
+                delete asgDirty[p.key];
+                showToast(`${p.label} 배정 저장 — 기사 화면에 바로 보여요.`);
+            } catch (e) {
+                console.warn(e);
+                showToast('⚠️ 배정을 저장하지 못했습니다.' + (asgFailed[p.month] ? ' (Firebase 규칙 게시 전이면 막혀 있습니다)' : ''));
+            } finally { hideLoader(); }
+            renderFilteredData();
+        }
+        // 맨 위 주황 띠 — 날짜 · 단추 · 출근 사람 칩(맡은 집 수) · 미배정 수
+        function asgRenderBand() {
+            const band = document.getElementById('asg-band');
+            if (!band) return;
+            if (!asgOn) { band.style.display = 'none'; band.innerHTML = ''; return; }
+            band.style.display = '';
+            const p = asgCurParts();
+            if (!p) {
+                band.innerHTML = `<div class="asg-top"><b>배정 중</b><span class="asg-msg">날짜를 하루 골라 주세요</span><button type="button" onclick="asgClose()">끝내기</button></div>`;
+                return;
+            }
+            if (!asgMonth[p.month]) {
+                asgEnsure(p.month);
+                band.innerHTML = `<div class="asg-top"><b>배정 중</b><span class="asg-msg">불러오는 중...</span><button type="button" onclick="asgClose()">끝내기</button></div>`;
+                return;
+            }
+            const D = asgDraft(p);
+            const houses = asgDayHouses(p);
+            const cnt = {};
+            let un = 0;
+            houses.forEach(x => {
+                const a = D.h[x.house];
+                if (a && a.rider) cnt[a.rider] = (cnt[a.rider] || 0) + 1;
+                else if (!x.done) un++;
+            });
+            const chips = asgPeople().map(s => {
+                const on = !!D.shift[s.uid];
+                if (!on && !cnt[s.uid]) return `<button type="button" class="asg-chip" onclick="asgToggleShift('${encAttr(s.uid)}')">${gEsc(s.name)}</button>`;
+                return `<button type="button" class="asg-chip${on ? ' on' : ' off'}" onclick="asgToggleShift('${encAttr(s.uid)}')" title="${on ? '출근 — 누르면 뺍니다' : '출근 안 함 (맡은 집이 남아 있음)'}">${gEsc(s.name)} <b>${cnt[s.uid] || 0}</b></button>`;
+            }).join('');
+            band.innerHTML = `
+                <div class="asg-top">
+                    <b>배정 중</b><span>${p.label} · ${houses.length}집</span>
+                    ${asgDirty[p.key] ? '<em class="asg-dirty">저장 안 됨</em>' : ''}
+                </div>
+                <div class="asg-btns">
+                    <button type="button" onclick="asgAuto()">자동 나누기</button>
+                    <button type="button" class="go" onclick="asgSave()">저장</button>
+                    <button type="button" onclick="asgClose()">끝내기</button>
+                </div>
+                <div class="asg-sub">출근 <span>누르면 켜고 끕니다 · 숫자는 맡은 집</span></div>
+                <div class="asg-chips">${chips}${un ? `<span class="asg-un">미배정 ${un}</span>` : ''}</div>
+                ${asgFailed[p.month] ? '<div class="asg-msg warn">저장된 배정을 못 불러왔습니다 (Firebase 규칙 게시 전이면 막혀 있습니다).</div>' : ''}`;
+        }
+        // 아파트 단추 둘째 줄 — 그 단지를 맡은 사람들 (미배정이 있으면 그 수)
+        function asgAptLabel(list) {
+            const p = asgCurParts(); if (!p || !asgMonth[p.month]) return '';
+            const D = asgDraft(p);
+            const names = new Set(); let un = 0; const seen = new Set();
+            (list || []).forEach(o => {
+                const h = gHouseKeyOf(o); if (!h || seen.has(h)) return; seen.add(h);
+                const a = D.h[h];
+                if (a && a.rider) names.add(asgNameOf(a.rider) || a.riderName || '?');
+                else if (o.status !== '배달완료') un++;
+            });
+            const t = [...names].join('·');
+            return un ? `${t ? t + ' · ' : ''}<span style="color:#ea580c;">미배정 ${un}</span>` : (t || '-');
+        }
+        // 아파트를 골랐을 때 목록 맨 위 — 이 단지를 통째로 한 사람에게
+        function asgAptCardHtml(apt) {
+            const p = asgCurParts(); if (!p) return '';
+            const D = asgDraft(p);
+            const ppl = asgPeople().filter(s => D.shift[s.uid]);
+            if (!ppl.length) return `<div class="asg-aptcard"><b>${gEsc(apt)}</b><span class="asg-msg">위에서 출근한 사람을 먼저 눌러 주세요.</span></div>`;
+            return `<div class="asg-aptcard"><b>${gEsc(apt)} 통째로</b>
+                <div class="asg-who">${ppl.map(s => `<button type="button" onclick="asgSetApt('${encAttr(apt)}', '${encAttr(s.uid)}')">${gEsc(s.name)}</button>`).join('')}</div></div>`;
+        }
+        // 카드 아래 — 배정 화면이면 담당 고르기 + 할증 칸 (전화·완료 단추 대신)
+        function asgCardFootHtml(rep) {
+            const p = asgCurParts(), parts = gDelivParts(rep), house = gHouseKeyOf(rep);
+            if (!p || !parts || parts.ymd !== p.ymd || !house) return `<div class="asg-foot"><span class="asg-msg">이 카드는 다른 날 배달입니다.</span></div>`;
+            const D = asgDraft(p), a = D.h[house] || {};
+            const ppl = asgPeople().filter(s => D.shift[s.uid] || s.uid === a.rider);
+            const who = ppl.length
+                ? ppl.map(s => `<button type="button" class="${a.rider === s.uid ? 'on' : ''}" onclick="asgSet('${encAttr(house)}', '${encAttr(s.uid)}')">${gEsc(s.name)}</button>`).join('')
+                : '<span class="asg-msg">위에서 출근한 사람을 먼저 눌러 주세요.</span>';
+            return `<div class="asg-foot">
+                <div class="asg-who">${who}</div>
+                <div class="asg-sur" data-house="${encAttr(house)}">
+                    <span>할증(무게)</span>
+                    <label class="pay-rate"><input type="text" inputmode="numeric" class="a" placeholder="0" aria-label="할증 금액" value="${a.sur ? parseInt(a.sur).toLocaleString() : ''}" oninput="const n=payDigits(this.value);this.value=n?n.toLocaleString():''" onchange="asgSurFrom(this)"></label>
+                    <span class="u">원 (집 하나에)</span>
+                </div>
+            </div>`;
+        }
+        // 카드 위 작은 표 — 담당(가게만 · 배정 화면 아닐 때) · 할증 · 미배정(배정 화면)
+        function asgCardBadgeHtml(rep) {
+            const parts = gDelivParts(rep), house = gHouseKeyOf(rep);
+            if (!parts || !house) return '';
+            const cur = asgCurParts();
+            const a = (asgOn && cur && cur.ymd === parts.ymd) ? (asgDraft(cur).h[house] || null) : asgSavedOf(parts.month, parts.day, house);
+            const out = [];
+            if (asgOn) out.push(a && a.rider ? `<span class="asg-b who">${gEsc(asgNameOf(a.rider) || a.riderName || '')}</span>` : `<span class="asg-b un">미배정</span>`);
+            else if (gIsStore() && a && a.rider) out.push(`<span class="asg-b who">담당 ${gEsc(asgNameOf(a.rider) || a.riderName || '')}</span>`);
+            if (a && parseInt(a.sur)) out.push(`<span class="asg-b sur">할증(무게) +${parseInt(a.sur).toLocaleString()}</span>`);
+            return out.length ? `<div class="asg-badges">${out.join('')}</div>` : '';
         }
 
         /* ── [신규] 정산 — 달마다 기사별 단가 · 건수 · 금액 · 지급 ────────────────
@@ -2627,6 +2979,8 @@
         function payDigits(s) { return parseInt(String(s || '').replace(/\D/g, '')) || 0; }
         function payMD(ts) { const d = new Date(parseInt(ts) || 0); return `${d.getMonth() + 1}/${d.getDate()}`; }
         function payIsStore() { const me = window.gStaffMe; return !!(me && me.role === 'store'); }
+        // [신규 2026-10-27] 기사 화면에서 볼 사람 — 가게 사람이 '기사 전환'으로 고른 기사, 아니면 본인
+        function payMe() { const me = window.gStaffMe || {}; return { uid: me.viewUid || me.uid, name: me.viewUid ? (me.viewName || '') : (me.name || me.email || '') }; }
 
         async function openPay() {
             const me = window.gStaffMe;
@@ -2637,6 +2991,8 @@
             sel.innerHTML = payMonthKeys().map(m => `<option value="${m}">${payMonthLabel(m)}</option>`).join('');
             if (keep) sel.value = keep;
             payOpenRider = '';
+            payPayPick = '';
+            payMineDay = '';
             document.getElementById('pay-modal').style.display = 'flex';
             await payLoad();
         }
@@ -2652,10 +3008,13 @@
             else body.innerHTML = `<div class="pay-empty">불러오는 중...</div>`;
             try {
                 // 배달기사는 단가·지급도 본인 칸만 받는다 (다른 기사 것은 규칙상 못 본다)
-                const me = window.gStaffMe || {};
+                const me = payMe();
                 const mine = encodeURIComponent(me.uid || '');
                 const store = payIsStore();
                 const prev = payPrevMonth(month);
+                // [신규 2026-10-27] 집별 힘든 배달 할증은 배정(rider_assign)에 있다 — 그 달 것을 같이 받는다
+                if (!_asgLoading[month]) delete asgMonth[month];   // 정산을 열 때마다 새로 받는다 (고치던 배정은 asgDrafts 에 따로 있다)
+                const asgP = asgEnsure(month).catch(() => null);
                 const [dRes, pRes, qRes, sRes, bRes] = await Promise.all([
                     fetch(`${FIREBASE_DB_URL}${DELIV_NODE}/${month}.json`),
                     fetch(`${FIREBASE_DB_URL}rider_pay/${month}${store ? '' : '/' + mine}.json`),
@@ -2677,6 +3036,8 @@
                 if (!dRes.ok || !pRes.ok || !qRes.ok || !sRes.ok) throw new Error('서버 응답 ' + [dRes.status, pRes.status, qRes.status, sRes.status].join('/'));
                 payMonthData = (await dRes.json()) || {};
                 paySurcharge = (await sRes.json()) || {};
+                await asgP;
+                if (seq !== _payLoadSeq) return;
                 paySurPick = '';
                 const p = await pRes.json(), q = await qRes.json();
                 paySaved = store ? (p || {}) : (p ? { [me.uid]: p } : {});
@@ -2736,24 +3097,46 @@
             };
         }
         function paySurOf(dd) { return parseInt(paySurcharge[dd]) || 0; }
-        // 한 사람의 이 달 배달을 날짜 순으로 (지급은 앞에서부터 덮는다고 본다)
+        // [신규 2026-10-27] 그 집 힘든 배달 할증 (배정에 적힌 것 — 고른 달)
+        function payHouseSur(dd, house) {
+            const month = (document.getElementById('pay-month') || {}).value || '';
+            return parseInt((asgSavedOf(month, dd, house) || {}).sur) || 0;
+        }
+        // 한 사람의 이 달 배달을 날짜 순으로 (지급은 앞에서부터 덮는다고 본다). hs = 그 집 힘든 배달 할증
         function payDeliveriesOf(r) {
             const list = [];
-            Object.keys(r.days || {}).forEach(dd => (r.days[dd] || []).forEach(rec => list.push({ dd, at: parseInt(rec.at) || 0 })));
+            Object.keys(r.days || {}).forEach(dd => (r.days[dd] || []).forEach(rec => list.push({ dd, at: parseInt(rec.at) || 0, house: rec.house, hs: payHouseSur(dd, rec.house) })));
             list.sort((a, b) => a.dd.localeCompare(b.dd) || a.at - b.at);
             return list;
         }
+        /* [수정 2026-10-27] 지급마다 어느 배달을 덮는지 — 지급한 차례대로 본다.
+           기간을 정한 지급(from~to, 'DD')은 그 기간 안의 아직 안 덮인 배달을, 예전 지급(기간 없음)은 날짜 순 앞에서부터를
+           그 지급의 건수만큼 덮는다. 돌려주는 것: 배달마다 { dd, at, p(덮은 지급 또는 null) } */
+        function payCover(r) {
+            const list = payDeliveriesOf(r).map(x => Object.assign({ p: null }, x));
+            payPaymentsOf(r.uid).list.forEach(p => {
+                let n = parseInt(p.count) || 0;
+                for (const x of list) {
+                    if (n <= 0) break;
+                    if (x.p) continue;
+                    if (p.from && p.to && (x.dd < p.from || x.dd > p.to)) continue;
+                    x.p = p; n--;
+                }
+            });
+            return list;
+        }
         /* 한 사람의 이 달 셈.
-           지급한 몫은 그때 고정된 금액 그대로. 아직 안 준 몫은 날짜 순으로 앞에서부터 지급이 덮고 남은 배달들이고,
-           한 건마다 (단가 + 그날 할증)을 더한다. */
-        function payCalc(r, rateOverride) {
+           지급한 몫은 그때 고정된 금액 그대로. 아직 안 준 몫은 지급이 덮고 남은 배달들이고,
+           한 건마다 (단가 + 그날 할증)을 더한다. from~to('DD')를 주면 그 기간 안의 안 준 몫만 센다(지급 창에서). */
+        function payCalc(r, rateOverride, from, to) {
             const pay = payPaymentsOf(r.uid);
             const rate = rateOverride != null ? rateOverride : payRateOf(r.uid);
-            const rest = payDeliveriesOf(r).slice(Math.min(pay.count, r.count));
+            let rest = payCover(r).filter(x => !x.p);
+            if (from && to) rest = rest.filter(x => x.dd >= from && x.dd <= to);
             const left = rest.length;
-            const surDue = rest.reduce((s, x) => s + paySurOf(x.dd), 0);
+            const surDue = rest.reduce((s, x) => s + paySurOf(x.dd) + (x.hs || 0), 0);   // 날짜 할증 + 집 할증
             const due = left * rate + surDue;
-            return { pay, rate, left, surDue, due, total: pay.amount + due };
+            return { pay, rate, left, surDue, due, total: pay.amount + due, rest };
         }
 
         function payRender() {
@@ -2770,7 +3153,7 @@
                 const locked = c.pay.list.length > 0 && c.left === 0;   // 다 줬으면 단가를 바꿀 일이 없다
                 // [수정] 지급 날짜는 단추에서 빼고, 펼치면 나오는 지급 기록 표의 '지급일' 칸에 둔다
                 const action = c.left > 0
-                    ? `<button type="button" class="pay-act go" onclick="payPay('${uidAttr}')">${c.pay.list.length ? `지급<small>+${c.left}</small>` : '지급'}</button>`
+                    ? `<button type="button" class="pay-act go" onclick="payPayOpen('${uidAttr}')">${c.pay.list.length ? `지급<small>+${c.left}</small>` : '지급'}</button>`
                     : (last
                         ? `<span class="pay-act done" style="cursor:default;" title="지급일은 건수를 눌러 펼치면 보입니다">완료</span>`
                         : `<span class="pay-act" style="cursor:default;"></span>`);
@@ -2789,6 +3172,7 @@
                             <span class="amt${c.total ? '' : ' zero'}" data-pay-amt="${uidAttr}">${c.total.toLocaleString()}</span>
                             ${action}
                         </div>
+                        ${payPayPick === r.uid && c.left > 0 ? payPayPanel(r) : ''}
                         ${open && c.pay.list.length ? `<div class="pay-days">${payHistory(r, true)}</div>` : ''}
                     </div>`;
             }).join('');
@@ -2808,11 +3192,16 @@
             const c = payCalc(r);
             if (!c.pay.list.length) return '';
             const uidAttr = encAttr(r.uid);
+            const mm = parseInt(((document.getElementById('pay-month') || {}).value || '').slice(5)) || 0;
+            // [신규 2026-10-27] 건수 칸 밑에 할증 붙은 건수 (지급마다 · 미지급)
+            const surCnt = {}; let surLeft = 0;
+            payCover(r).forEach(x => { if (paySurOf(x.dd) > 0 || x.hs > 0) { if (x.p) surCnt[x.p.id] = (surCnt[x.p.id] || 0) + 1; else surLeft++; } });
+            const cntHtml = (n, s) => `${(parseInt(n) || 0).toLocaleString()}${s ? `<small class="pay-sur-n">할증 ${s}건</small>` : ''}`;
             const rows = c.pay.list.map(p => `
                 <div class="pay-hrow">
-                    <span class="d">${payMD(p.at)}</span>
+                    <span class="d">${payMD(p.at)}${p.from && p.to ? `<small class="pay-rng-n">${mm}/${parseInt(p.from)}${p.from === p.to ? '' : `~${mm}/${parseInt(p.to)}`}</small>` : ''}</span>
                     <span class="c">${(parseInt(p.rate) || 0).toLocaleString()}</span>
-                    <span class="c">${(parseInt(p.count) || 0).toLocaleString()}</span>
+                    <span class="c">${cntHtml(p.count, surCnt[p.id])}</span>
                     <span class="r">${(parseInt(p.amount) || 0).toLocaleString()}${parseInt(p.surcharge) ? `<small class="pay-sur-n">할증 ${parseInt(p.surcharge).toLocaleString()}</small>` : ''}</span>
                     <span class="c">${canEdit ? `<button type="button" onclick="payUnpay('${uidAttr}', '${encAttr(p.id)}')">취소</button>` : ''}</span>
                 </div>`).join('');
@@ -2820,7 +3209,7 @@
                 <div class="pay-hrow due">
                     <span class="d">미지급</span>
                     <span class="c">${c.rate.toLocaleString()}</span>
-                    <span class="c">${c.left.toLocaleString()}</span>
+                    <span class="c">${cntHtml(c.left, surLeft)}</span>
                     <span class="r">${c.due.toLocaleString()}${c.surDue ? `<small class="pay-sur-n">할증 ${c.surDue.toLocaleString()}</small>` : ''}</span>
                     <span></span>
                 </div>` : '';
@@ -2888,21 +3277,93 @@
             } catch (e) { console.warn(e); showToast('⚠️ 단가를 저장하지 못했습니다.'); }
         }
 
-        // 아직 안 준 몫(남은 건수 × 단가)을 한 번의 지급으로 남긴다
+        /* [신규 2026-10-27] 지급 창 — '지급'을 누르면 그 줄 바로 아래에 기간(시작일~끝일)을 고르는 칸이 열린다 (사장님 요청).
+           처음에는 아직 안 준 배달의 첫날~마지막 날이 들어 있다. 기간 안의 안 준 몫만 지급하고, 남은 몫은 그대로 미지급.
+           지급 기록에 from·to('DD')를 같이 남긴다. */
+        let payPayPick = '';           // 지급 창을 연 기사 uid
+        function payPayOpen(uidEnc) {
+            const uid = decAttr(uidEnc);
+            payPayPick = (payPayPick === uid) ? '' : uid;
+            payRender();
+            if (payPayPick) setTimeout(() => { payPayPreview(); }, 0);
+        }
+        function payPayPanel(r) {
+            const month = document.getElementById('pay-month').value;
+            const [y, m] = month.split('-').map(Number);
+            const lastDD = String(new Date(y, m, 0).getDate()).padStart(2, '0');
+            const rest = payCalc(r).rest;
+            const f = rest.length ? rest[0].dd : '01', t = rest.length ? rest[rest.length - 1].dd : lastDD;
+            const uidAttr = encAttr(r.uid);
+            const quick = (a, b, txt) => `<button type="button" onclick="payPaySetRange('${a}','${b}')">${txt}</button>`;
+            return `
+                <div class="pay-paybox" data-pay-box="${uidAttr}">
+                    <div class="pay-paybox-t">지급할 기간</div>
+                    <div class="pay-paybox-dates">
+                        <input type="date" id="pay-pay-from" min="${month}-01" max="${month}-${lastDD}" value="${month}-${f}" onchange="payPayPreview()" aria-label="시작일">
+                        <span>~</span>
+                        <input type="date" id="pay-pay-to" min="${month}-01" max="${month}-${lastDD}" value="${month}-${t}" onchange="payPayPreview()" aria-label="끝일">
+                    </div>
+                    <div class="pay-paybox-q">
+                        ${quick(f, t, '미지급 전부')}${quick('01', '15', '1~15일')}${quick('16', lastDD, `16~${parseInt(lastDD)}일`)}
+                    </div>
+                    <div class="pay-paybox-sum" id="pay-pay-sum"></div>
+                    <div class="pay-paybox-btn">
+                        <button type="button" onclick="payPayOpen('${uidAttr}')">닫기</button>
+                        <button type="button" class="go" id="pay-pay-go" onclick="payPay('${uidAttr}')">지급</button>
+                    </div>
+                </div>`;
+        }
+        function payPaySetRange(a, b) {
+            const month = document.getElementById('pay-month').value;
+            const f = document.getElementById('pay-pay-from'), t = document.getElementById('pay-pay-to');
+            if (f) f.value = `${month}-${a}`;
+            if (t) t.value = `${month}-${b}`;
+            payPayPreview();
+        }
+        // 고른 기간 'DD' 둘 — 달이 다르거나 비었으면 null, 거꾸로 골랐으면 바꿔 준다
+        function payPayRange() {
+            const month = document.getElementById('pay-month').value;
+            let a = (document.getElementById('pay-pay-from') || {}).value || '';
+            let b = (document.getElementById('pay-pay-to') || {}).value || '';
+            if (!a.startsWith(month + '-') || !b.startsWith(month + '-')) return null;
+            a = a.slice(8, 10); b = b.slice(8, 10);
+            return a <= b ? [a, b] : [b, a];
+        }
+        // 기간을 바꿀 때마다 '몇 건 × 단가 = 금액'을 다시 보여 준다
+        function payPayPreview() {
+            const el = document.getElementById('pay-pay-sum');
+            const go = document.getElementById('pay-pay-go');
+            if (!el) return;
+            const r = payByRider().find(x => x.uid === payPayPick);
+            const rg = payPayRange();
+            if (!r || !rg) { el.innerHTML = '<span class="warn">이 달 안의 날짜를 골라 주세요.</span>'; if (go) go.disabled = true; return; }
+            const c = payCalc(r, null, rg[0], rg[1]);
+            if (go) go.disabled = !c.left || !c.rate;
+            el.innerHTML = !c.left
+                ? '<span class="warn">이 기간에는 안 준 배달이 없습니다.</span>'
+                : !c.rate
+                    ? '<span class="warn">단가를 먼저 적어 주세요.</span>'
+                    : `${c.rate.toLocaleString()}원 × ${c.left}건${c.surDue ? ` + 할증 ${c.surDue.toLocaleString()}원` : ''} = <b>${payWon(c.due)}</b>`;
+        }
+        // 고른 기간 안의 안 준 몫(건수 × 단가 + 할증)을 한 번의 지급으로 남긴다
         async function payPay(uidEnc) {
             const uid = decAttr(uidEnc);
             const month = document.getElementById('pay-month').value;
             const r = payByRider().find(x => x.uid === uid);
             if (!r) return;
-            const c = payCalc(r);
-            if (!c.left) return;
+            const rg = payPayRange();
+            if (!rg) { showToast('날짜를 골라 주세요.'); return; }
+            const [from, to] = rg;
+            const c = payCalc(r, null, from, to);
+            if (!c.left) { showToast('이 기간에는 안 준 배달이 없습니다.'); return; }
             if (!c.rate) { showToast('단가를 먼저 적어 주세요.'); return; }
-            const head = c.pay.list.length ? `${r.name || '이름 없음'} · ${payMonthLabel(month)} 추가분` : `${r.name || '이름 없음'} · ${payMonthLabel(month)}`;
+            const mm = parseInt(month.slice(5));
+            const rangeTxt = from === to ? `${mm}/${parseInt(from)}` : `${mm}/${parseInt(from)}~${mm}/${parseInt(to)}`;
             const surTxt = c.surDue ? ` + 할증 ${c.surDue.toLocaleString()}원` : '';
-            if (!confirm(`${head}\n단가 ${c.rate.toLocaleString()}원 × ${c.left}건${surTxt} = ${c.due.toLocaleString()}원\n\n지급으로 표시할까요?`)) return;
+            if (!confirm(`${r.name || '이름 없음'} · ${rangeTxt}\n단가 ${c.rate.toLocaleString()}원 × ${c.left}건${surTxt} = ${c.due.toLocaleString()}원\n\n지급으로 표시할까요?`)) return;
             const me = window.gStaffMe || {};
             const id = String(Date.now());
-            const rec = { at: Date.now(), by: me.name || me.email || '', count: c.left, rate: c.rate, surcharge: c.surDue, amount: c.due };
+            const rec = { at: Date.now(), by: me.name || me.email || '', count: c.left, rate: c.rate, surcharge: c.surDue, amount: c.due, from, to };
             try {
                 const res = await fetch(`${FIREBASE_DB_URL}rider_pay/${month}/${encodeURIComponent(uid)}.json`, {
                     method: 'PATCH', headers: { 'Content-Type': 'application/json' },
@@ -2911,7 +3372,8 @@
                 if (!res.ok) throw new Error('서버 응답 ' + res.status);
                 const s = paySaved[uid] = Object.assign(paySaved[uid] || {}, { rate: c.rate, name: r.name || '' });
                 s.payments = Object.assign(s.payments || {}, { [id]: rec });
-                showToast('지급');
+                payPayPick = '';
+                showToast(`${rangeTxt} 지급`);
                 payRender();
             } catch (e) { console.warn(e); showToast('⚠️ 지급 표시를 남기지 못했습니다.'); }
         }
@@ -2933,39 +3395,52 @@
 
         // 배달기사가 보는 화면 — 본인 단가 · 건수 · 금액 · 지급 기록 · 날짜별 내역. 고치기 없음.
         function payRenderMine() {
-            const me = window.gStaffMe || {};
+            const me = payMe();
             const month = document.getElementById('pay-month').value;
             const body = document.getElementById('pay-body');
             const mine = payByRider().find(r => r.uid === me.uid)
-                || { uid: me.uid, name: me.name || me.email || '', count: 0, days: {} };
+                || { uid: me.uid, name: me.name, count: 0, days: {} };
             const c = payCalc(mine);
             const pill = c.left > 0
                 ? `<span class="pay-pill wait">미지급 ${c.left}건</span>`
                 : (c.pay.list.length ? `<span class="pay-pill">지급 완료</span>` : '');   // 날짜는 아래 지급 기록 표의 '지급일' 칸에
+            // [수정 2026-10-27] 달력을 맨 위로 (사장님 요청) — 달 넘기기 · 달력 → 요약 · 할증 → 지급 기록
+            const surN = payDeliveriesOf(mine).filter(x => paySurOf(x.dd) > 0 || x.hs > 0).length;   // 할증 붙은 건수
+            // [수정 2026-10-27] 가게 정산처럼 맨 위에 요약 (총 건수 · 총액 · 미지급) — 사장님 요청. 총액은 아래 줄에서 뺐다
+            const known = c.rate || c.pay.list.length;
             body.innerHTML = `
+                <div class="pay-sum">
+                    <div><span>총 건수</span><b>${mine.count.toLocaleString()}건</b></div>
+                    <div><span>총액</span><b>${known ? payWon(c.total) : '-'}</b></div>
+                    <div><span>미지급</span><b class="${c.due ? 'due' : ''}">${known ? payWon(c.due) : '-'}</b></div>
+                </div>
                 <div class="pay-me">
-                    <div class="pay-me-top">
+                    <div style="padding:10px 12px 0;">${payMonthNavHtml()}</div>
+                    ${payRiderDetail(mine, true)}
+                    <div class="pay-me-top" style="border-top:1px solid #e2e8f0;">
                         <div class="r1"><b>${gEsc(mine.name || '나')}</b>${pill}</div>
                         <div class="r2">
-                            <span>${c.rate ? `단가 ${c.rate.toLocaleString()}원` : '단가 미정'} · ${mine.count}건</span>
-                            <b>${c.rate || c.pay.list.length ? payWon(c.total) : '-'}</b>
+                            <span>${c.rate ? `단가 ${c.rate.toLocaleString()}원` : '단가 미정'} · ${mine.count}건${surN ? ` <em class="pay-sur-cnt">(할증 ${surN}건)</em>` : ''}</span>
                         </div>
                     </div>
-                    <div style="padding:8px 12px 0;">${payMonthNavHtml()}</div>
                     ${paySurBar(false)}
-                    <div class="pay-days">${payHistory(mine, false)}${payRiderDetail(mine)}</div>
+                    ${c.pay.list.length ? `<div class="pay-days">${payHistory(mine, false)}</div>` : ''}
                 </div>`;
         }
 
         /* 날짜별 건수 — 달력 한 장으로 보여 준다 (한 줄씩 늘어놓으니 26줄이 넘어 너무 길었다).
            칸마다 날짜(작게)와 그날 건수(크게). 배달 없는 날은 비워 둔다. 집 하나하나는 '📋 배달 기록'에서 본다. */
-        function payRiderDetail(r) {
+        // [수정 2026-10-27] top=true 면 맨 위 달력 (기사 화면) — 이름표 대신 '✓ 지급 완료' 알림을 단다
+        function payRiderDetail(r, top) {
             const month = document.getElementById('pay-month').value;
             const [y, m] = month.split('-').map(n => parseInt(n));
             // [수정] 배달이 없는 달에도 빈 달력 틀은 그대로 보인다
             const first = new Date(y, m - 1, 1).getDay();
             const last = new Date(y, m, 0).getDate();
             const amt = payDayAmounts(r);
+            // [신규 2026-10-27] 그날 배달이 모두 지급된 날은 초록 칸에 ✓ (일부만 지급된 날은 표시 안 함)
+            const unpaid = {};
+            payCover(r).forEach(x => { if (!x.p) unpaid[x.dd] = true; });
             const cells = [];
             for (let i = 0; i < first; i++) cells.push('<span class="pay-cal-x"></span>');
             for (let d = 1; d <= last; d++) {
@@ -2973,11 +3448,65 @@
                 const n = (r.days[dd] || []).length;
                 const wd = (first + d - 1) % 7;
                 const sur = paySurOf(dd);
-                cells.push(`<span class="pay-cal-d pay-cal-amt ${n ? 'on' : 'off'}${wd === 0 ? ' sun' : ''}${sur ? ' sur' : ''}"${sur ? ` title="할증 건당 ${sur.toLocaleString()}원"` : ''}><i>${d}</i><b>${n || '–'}</b>${n && amt[dd] ? `<em>${amt[dd].toLocaleString()}</em>` : ''}</span>`);
+                const paid = n && !unpaid[dd];
+                // [신규 2026-10-27] 기사 달력은 배달 있는 날을 누르면 아래에 그날 단가별 건수·금액 (payMineDayHtml)
+                const tap = top && n ? ` role="button" tabindex="0" onclick="payMineDayPick('${dd}')" onkeydown="if(event.key==='Enter')payMineDayPick('${dd}')"` : '';
+                cells.push(`<span class="pay-cal-d pay-cal-amt ${n ? 'on' : 'off'}${wd === 0 ? ' sun' : ''}${sur ? ' sur' : ''}${paid ? ' paid' : ''}${tap ? ' tap' : ''}${top && payMineDay === dd ? ' pick' : ''}"${tap}${sur || paid ? ` title="${[sur ? `할증 건당 ${sur.toLocaleString()}원` : '', paid ? '지급 완료' : ''].filter(Boolean).join(' · ')}"` : ''}><i>${d}</i><b>${n || '–'}</b>${n && amt[dd] ? `<em>${amt[dd].toLocaleString()}</em>` : ''}${paid ? '<small class="pd">지급완료</small>' : ''}</span>`);
             }
-            return `<div class="pay-sec">날짜별 건수 · 금액</div><div class="pay-cal">
+            const head = top
+                ? `<div class="pay-cal-key"><span><i class="k-paid"></i>지급완료</span><span><i class="k-sur"></i>할증(날씨)</span></div>`
+                : `<div class="pay-sec">날짜별 건수 · 금액</div>`;
+            return `${head}<div class="pay-cal">
                 ${['일', '월', '화', '수', '목', '금', '토'].map((w, i) => `<span class="pay-cal-w${i === 0 ? ' sun' : ''}">${w}</span>`).join('')}
                 ${cells.join('')}
+            </div>${top ? payMineDayHtml(r) : ''}`;
+        }
+        /* [신규 2026-10-27] 기사 달력에서 고른 날 — 단가마다 몇 건 · 얼마, 할증, 합계, 지급 여부 (사장님 요청).
+           지급한 몫은 지급할 때의 단가, 안 준 몫은 지금 단가로 센다 (payCover 와 같은 셈). */
+        let payMineDay = '';
+        function payMineDayPick(dd) {
+            payMineDay = payMineDay === dd ? '' : dd;
+            payRender();
+        }
+        function payMineDayHtml(r) {
+            const dd = payMineDay;
+            if (!dd || !(r.days[dd] || []).length) return '';
+            const month = document.getElementById('pay-month').value;
+            const [y, m] = month.split('-').map(Number);
+            const W = ['일', '월', '화', '수', '목', '금', '토'];
+            const rateNow = payRateOf(r.uid);
+            const sur = paySurOf(dd);
+            // 단가 + 지급 여부(어느 지급) 로 묶는다
+            const groups = {};
+            payCover(r).filter(x => x.dd === dd).forEach(x => {
+                const rate = x.p ? (parseInt(x.p.rate) || 0) : rateNow;
+                const k = `${rate}|${x.p ? x.p.id : ''}`;
+                (groups[k] = groups[k] || { rate, p: x.p, n: 0 }).n++;
+            });
+            let total = 0, cnt = 0;
+            const rows = Object.values(groups).sort((a, b) => (a.p ? 0 : 1) - (b.p ? 0 : 1) || b.rate - a.rate).map(g => {
+                const amt = g.rate * g.n; total += amt; cnt += g.n;
+                return `<div class="pay-dd-row">
+                    <span>${g.rate.toLocaleString()}원 × ${g.n}건</span>
+                    <b>${amt.toLocaleString()}원</b>
+                    <em class="${g.p ? 'ok' : 'wait'}">${g.p ? `지급완료 ${payMD(g.p.at)}` : '미지급'}</em>
+                </div>`;
+            }).join('');
+            const surRow = sur ? `<div class="pay-dd-row sur">
+                    <span>할증(날씨)<small>${sur.toLocaleString()}원 × ${cnt}건</small></span>
+                    <b>${(sur * cnt).toLocaleString()}원</b><em></em>
+                </div>` : '';
+            total += sur * cnt;
+            // [신규 2026-10-27] 집 할증 (힘든 배달) — 집마다 금액 · 이유
+            const hsRows = payCover(r).filter(x => x.dd === dd && x.hs > 0).map(x => {
+                total += x.hs;
+                return `<div class="pay-dd-row sur"><span>할증(무게)</span><b>${x.hs.toLocaleString()}원</b><em></em></div>`;
+            }).join('');
+            return `<div class="pay-dd">
+                <div class="pay-dd-t">${m}/${parseInt(dd)} (${W[new Date(y, m - 1, parseInt(dd)).getDay()]}) · ${cnt}건
+                    <button type="button" onclick="payMineDayPick('')" aria-label="닫기">×</button></div>
+                ${rows}${surRow}${hsRows}
+                <div class="pay-dd-row sum"><span>합계</span><b>${total.toLocaleString()}원</b><em></em></div>
             </div>`;
         }
         /* [신규] 할증 줄 — 정산 요약 바로 아래. 그날 배달한 모든 기사에게 건당 이만큼 더 붙는다.
@@ -3008,7 +3537,7 @@
             return `
                 <div class="pay-sur">
                     <div class="pay-sur-line">
-                        <span class="pay-sur-t">할증</span>
+                        <span class="pay-sur-t">할증(날씨)</span>
                         ${chips || (canEdit ? '<span class="pay-sur-none">없음</span>' : '')}
                         ${canEdit && !paySurPick ? `<button type="button" class="pay-sur-add" onclick="paySurEdit('+')" title="할증 넣기" aria-label="할증 넣기">＋</button>` : ''}
                     </div>
@@ -3041,7 +3570,7 @@
                     <div class="pay-sur-edit">
                         <input type="hidden" id="pay-sur-date" value="${month}-${sel}">
                         <span class="pay-sur-day">${m}/${parseInt(sel)} (${W[new Date(y, m - 1, parseInt(sel)).getDay()]}) · ${counts[sel] || 0}건</span>
-                        <span class="pay-sur-t">할증</span>
+                        <span class="pay-sur-t">할증(날씨)</span>
                         <label class="pay-rate"><input type="text" inputmode="numeric" id="pay-sur-amt" placeholder="건당" aria-label="건당 할증" value="${cur ? cur.toLocaleString() : ''}" oninput="const n=payDigits(this.value);this.value=n?n.toLocaleString():''"></label>
                         <button type="button" class="go" onclick="paySurSave()">저장</button>
                         ${cur ? `<button type="button" onclick="paySurSave(true)">삭제</button>` : ''}
@@ -3055,7 +3584,7 @@
                         ${who
                             ? `<span class="pay-sur-t" style="color:var(--text-main);">${gEsc(who.name || '이름 없음')}</span><span class="pay-sur-none">건수 · 금액</span>
                                <button type="button" class="pay-cal-all" onclick="payToggleRider('${encAttr(who.uid)}')">전체 보기</button>`
-                            : `<span class="pay-sur-t" style="color:var(--text-sub);">전체</span><span class="pay-sur-none">건수 · 금액 · 날짜를 누르면 할증</span>`}
+                            : `<span class="pay-sur-t" style="color:var(--text-sub);">전체</span><span class="pay-sur-none">건수 · 금액 · 날짜를 누르면 할증(날씨)</span>`}
                     </div>
                     ${gCalHtml(month, counts, sel, 'paySurEdit', paySurOf, amounts)}
                     ${editor}
@@ -3079,6 +3608,8 @@
             if (i < 0 || i >= sel.options.length) return;
             sel.selectedIndex = i;
             paySurPick = '';
+            payPayPick = '';
+            payMineDay = '';
             payLoad();
         }
         function paySurEdit(dd) {
@@ -3109,7 +3640,7 @@
                 }
                 if (amt) paySurcharge[dd] = amt; else delete paySurcharge[dd];
                 paySurPick = '';
-                showToast(amt ? `${parseInt(month.slice(5))}/${parseInt(dd)} 할증 ${amt.toLocaleString()}원` : '할증 삭제');
+                showToast(amt ? `${parseInt(month.slice(5))}/${parseInt(dd)} 할증(날씨) ${amt.toLocaleString()}원` : '할증(날씨) 삭제');
                 payRender();
             } catch (e) { console.warn(e); showToast('⚠️ 할증을 저장하지 못했습니다.'); }
         }
@@ -3117,14 +3648,11 @@
            지급한 몫은 지급할 때의 단가로 — 날짜 순으로 앞에서부터 지급 기록 차례대로 덮는다. 나머지는 지금 단가. */
         function payDayAmounts(r) {
             const amt = {};
-            const pays = payPaymentsOf(r.uid).list;
             const rateNow = payRateOf(r.uid);
-            let pi = 0, used = 0;
-            payDeliveriesOf(r).forEach(x => {
-                while (pi < pays.length && used >= (parseInt(pays[pi].count) || 0)) { pi++; used = 0; }
-                const rate = pi < pays.length ? (parseInt(pays[pi].rate) || 0) : rateNow;
-                if (pi < pays.length) used++;
-                amt[x.dd] = (amt[x.dd] || 0) + rate + paySurOf(x.dd);
+            // [수정 2026-10-27] 어느 지급이 덮었는지는 payCover 로 (기간 지급 때문에)
+            payCover(r).forEach(x => {
+                const rate = x.p ? (parseInt(x.p.rate) || 0) : rateNow;
+                amt[x.dd] = (amt[x.dd] || 0) + rate + paySurOf(x.dd) + (x.hs || 0);
             });
             return amt;
         }
@@ -3196,9 +3724,11 @@
                     } finally { body.classList.remove('gload'); }
                     if (document.getElementById('dlog-date').value.slice(0, 7) !== month) return;   // 그 사이 다른 달로 넘어갔다
                 }
+                await asgEnsure(month);   // [신규 2026-10-27] 집 할증(배정)을 같이 보여 주려고
                 const mon = dlogMonthCache[month];
                 dlogData = mon[mm[3]] = mon[mm[3]] || {};   // 같은 그릇 — 추가·삭제가 달력에도 바로 보인다
                 dlogRider = '';
+                dlogSurPick = '';
                 dlogRender();
             } catch (e) {
                 console.warn('배달 기록 불러오기 실패:', e);
@@ -3206,6 +3736,41 @@
             }
         }
         function dlogPick(nameEnc) { dlogRider = decAttr(nameEnc); dlogRender(); }
+        /* [신규 2026-10-27] 배달 후 힘든 배달 할증 — 배정(rider_assign/달/날/h/집)의 sur(금액)만 고친다.
+           배정을 안 한 날이어도 그 집 칸이 새로 생긴다(담당 없이 할증만). 금액을 비우고 저장하면 할증을 뺀다. */
+        let dlogSurPick = '';
+        function dlogSurEdit(houseEnc) {
+            const h = decAttr(houseEnc);
+            dlogSurPick = (h && dlogSurPick !== h) ? h : '';
+            dlogRender();
+            if (dlogSurPick) setTimeout(() => { const el = document.getElementById('dlog-sur-a'); if (el) el.focus(); }, 0);
+        }
+        async function dlogSurSave(houseEnc) {
+            if (!payIsStore()) return;
+            const house = decAttr(houseEnc);
+            const ymd = document.getElementById('dlog-date').value;
+            const month = ymd.slice(0, 7), dd = ymd.slice(8, 10);
+            const amt = payDigits((document.getElementById('dlog-sur-a') || {}).value || '');
+            try {
+                const res = await fetch(`${FIREBASE_DB_URL}rider_assign/${month}/${dd}/h/${encodeURIComponent(house)}.json`, {
+                    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ sur: amt || null, why: null })   // 이유 칸은 뺐다 (예전 값도 지움)
+                });
+                if (!res.ok) throw new Error('서버 응답 ' + res.status);
+                const day = ((asgMonth[month] = asgMonth[month] || {})[dd] = (asgMonth[month] || {})[dd] || {});
+                const hm = day.h = day.h || {};
+                const cur = Object.assign({}, hm[house] || {});
+                delete cur.why;
+                if (amt) cur.sur = amt; else delete cur.sur;
+                if (Object.keys(cur).length) hm[house] = cur; else delete hm[house];
+                // 배정 화면에서 그날을 고치던 중이면 거기도 맞춘다
+                const dk = `${month}/${dd}`;
+                if (asgDrafts[dk]) { const dh = asgDrafts[dk].h; if (Object.keys(cur).length) { dh[house] = Object.assign({}, dh[house] || {}, { sur: cur.sur }); delete dh[house].why; } else if (dh[house]) { delete dh[house].sur; delete dh[house].why; } }
+                dlogSurPick = '';
+                showToast(amt ? `할증(무게) ${amt.toLocaleString()}원` : '할증(무게) 뺌');
+                dlogRender();
+            } catch (e) { console.warn(e); showToast('⚠️ 할증을 저장하지 못했습니다. (Firebase 규칙 게시 전이면 막혀 있습니다)'); }
+        }
 
         /* [신규] 건수만 추가 — 앱으로 완료를 못 누른 배달을 나중에 정산에 넣는다 (목록 카드는 안 생긴다).
            고른 날짜의 배달 기록에 'manual' 표시를 단 칸을 건수만큼 만든다. (지우기는 수기·앱 기록 모두 dlogDel) */
@@ -3400,13 +3965,23 @@
             const hm = ts => { const t = new Date(parseInt(ts) || 0); return ts ? `${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}` : ''; };
             const rows = shown.map(r => {
                 const place = [r.apt && r.apt !== '기타' ? `[${r.apt}]` : '', r.detail || ''].join(' ').trim() || '-';
+                // [신규 2026-10-27] 집 할증 (힘든 배달) — 배정에 적힌 것. 가게는 배달 후에도 '할증'으로 붙이고 고친다
+                const ha = asgSavedOf(month, dd, r.house) || {};
+                const hs = parseInt(ha.sur) || 0;
                 return `<div class="dlog-row">
                     <span class="t">${hm(r.at)}</span>
-                    <span class="h"><b>${gEsc(place)}${r.manual ? ' <span class="man-tag">✍️ 수기</span>' : ''}</b><span>${gEsc(r.name || '')}${r.items ? ` · ${r.items}개` : ''}${r.manual && r.by ? `${r.name ? ' · ' : ''}${gEsc(r.by)} 추가` : ''}</span></span>
-                    <span class="r">${gEsc(r.riderName || '')}${payIsStore() ? `<span class="dlog-btns"><button type="button" class="man-del" onclick="dlogDel('${encAttr(r.house)}')">삭제</button>${dlogPhotoKey(r)
+                    <span class="h"><b>${gEsc(place)}${r.manual ? ' <span class="man-tag">✍️ 수기</span>' : ''}</b><span>${gEsc(r.name || '')}${r.items ? ` · ${r.items}개` : ''}${r.manual && r.by ? `${r.name ? ' · ' : ''}${gEsc(r.by)} 추가` : ''}</span>${hs ? `<span class="asg-b sur" style="align-self:flex-start; margin-top:2px;">할증(무게) +${hs.toLocaleString()}</span>` : ''}</span>
+                    <span class="r">${gEsc(r.riderName || '')}${payIsStore() ? `<span class="dlog-btns"><button type="button" class="dlog-ph" onclick="dlogSurEdit('${encAttr(r.house)}')">할증(무게)</button><button type="button" class="man-del" onclick="dlogDel('${encAttr(r.house)}')">삭제</button>${dlogPhotoKey(r)
                         ? `<button type="button" class="dlog-ph" onclick="dlogPhoto('${encAttr(r.house)}')">사진</button>`
                         : `<button type="button" class="dlog-ph" disabled title="사진 없음">사진</button>`}</span>` : ''}</span>
-                </div>`;
+                </div>${dlogSurPick === r.house && payIsStore() ? `
+                <div class="asg-sur dlog-sur">
+                    <span>할증(무게)</span>
+                    <label class="pay-rate"><input type="text" inputmode="numeric" id="dlog-sur-a" placeholder="0" aria-label="할증 금액" value="${hs ? hs.toLocaleString() : ''}" oninput="const n=payDigits(this.value);this.value=n?n.toLocaleString():''"></label>
+                    <span class="u">원</span>
+                    <button type="button" class="go" onclick="dlogSurSave('${encAttr(r.house)}')">저장</button>
+                    <button type="button" onclick="dlogSurEdit('')">닫기</button>
+                </div>` : ''}`;
             }).join('');
             body.innerHTML = `${head}<div class="dlog-chips">${chips}</div><div class="dlog-list">${rows}</div>${dlogAddHtml()}`;
         }
@@ -4113,7 +4688,13 @@
             //  집집마다 비번이 달라 이 칸이 오히려 헷갈려서 빼둔다.
             // [수정] 1·2 / 3·4 두 칸으로 못 박아 두었는데, 아파트마다 라인 수가 달라 맞지 않았다.
             //  이제 '🚪 비번' 창에서 정한 호수 칸을 그대로 읽어 보여 준다. 고치는 것도 거기서 한다.
-            if (activeDong !== "전체" && activeApartment !== "전체" && activeApartment !== "기타") {
+            // [신규 2026-10-27] 배정 화면에서 아파트를 골랐으면 맨 위에 '통째로' 줄
+            if (asgOn && activeApartment !== "전체") {
+                const ac = document.createElement('div');
+                ac.innerHTML = asgAptCardHtml(activeApartment);
+                listContainer.appendChild(ac.firstElementChild || ac);
+            }
+            if (!asgOn && activeDong !== "전체" && activeApartment !== "전체" && activeApartment !== "기타") {   // [수정 2026-10-27] 배정 화면에선 비번 카드 뺌
                 /* [수정] 그 동의 비번을 전부 늘어놓으니, 오늘 안 가는 호수 것까지 섞여 눈이 갔다.
                    오늘 배달 갈 호수가 든 칸만 보여 준다. (4호가 있으면 3~4호 칸)
                    호수를 못 읽는 주문이 섞여 있으면 놓치지 않게 전부 보여 준다. */
@@ -4278,6 +4859,7 @@
                          비번이 없는 집은 비번 줄이 없으므로 아이디는 제목칸 오른쪽에 그대로 둔다 -->
                     <div class="rider-card-pwd"><span class="pk" aria-label="공동현관 비번"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></span><span class="pv" ondblclick="copyEntrancePwd(this)" title="두 번 누르면 비번 복사">${customer.entrance}</span><span class="customer-name">${customer.name}</span></div>
                     ` : ''}
+                    ${asgCardBadgeHtml(representativeItem)}
                     <div class="rider-card-body">
                         <!-- [수정] '📋 복사' 단추가 자리를 많이 먹어 뗐다. 이제 주소줄을 누르면 도로명주소가 복사된다.
                              (동·호수와 괄호는 빼고 내비에 찍는 도로명주소만) -->
@@ -4356,7 +4938,8 @@
                             </div>
                         ` : ''}
                     </div>
-                    <div class="rider-card-footer no-print">
+                    ${asgOn ? asgCardFootHtml(representativeItem) : ''}
+                    <div class="rider-card-footer no-print"${asgOn ? ' style="display:none;"' : ''}>
                         <!-- [수정 2026-10-24] 그림 글자(📞💬📸🚚)를 빼고 깔끔하게, 사진이 제일 중요해서 맨 오른쪽 + 가장 진하게 (사장님 요청) -->
                         <a href="tel:${cleanPhone}" class="btn-action btn-call"><span class="ic-l"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/></svg><span>전화</span></span></a>
                         <a href="sms:${cleanPhone}" class="btn-action btn-sms"><span class="ic-l"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg><span>문자</span></span></a>
@@ -5438,9 +6021,59 @@
         .set-row span { flex:1; }
         .set-row i { font-style:normal; font-size:18px; color:#cbd5e1; }
         .set-row:active { background:#f8fafc; }
-        .set-out { display:flex; align-items:center; gap:8px; width:100%; margin-top:12px; padding:11px 12px; border:1px solid #e2e8f0; background:#f8fafc; border-radius:10px; font:inherit; font-size:13px; font-weight:700; color:#64748b; text-align:left; cursor:pointer; }
-        .set-out span { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-        .set-out b { flex:0 0 auto; font-weight:800; color:#475569; }
+        /* [신규 2026-10-27] 배정 화면 — 위 주황 띠, 아파트 '통째로' 줄, 카드 위 표, 카드 아래 담당 고르기·할증 */
+        .asg-band { margin-bottom:10px; padding:10px 12px; border:1.5px solid #fdba74; background:#fff7ed; border-radius:var(--radius-sub); display:flex; flex-direction:column; gap:8px; }
+        .asg-top { display:flex; align-items:center; gap:8px; font-size:14px; font-weight:800; color:#9a3412; }
+        .asg-top b { font-weight:900; color:#c2410c; }
+        .asg-top > button { margin-left:auto; }
+        .asg-dirty { margin-left:auto; font-style:normal; font-size:11.5px; font-weight:900; color:#fff; background:#ea580c; padding:2px 8px; border-radius:999px; }
+        .asg-btns { display:flex; gap:6px; }
+        .asg-btns button, .asg-top > button { flex:1; height:36px; border:1px solid #fdba74; background:#fff; color:#9a3412; border-radius:8px; font:inherit; font-size:13.5px; font-weight:900; cursor:pointer; }
+        .asg-top > button { flex:0 0 auto; padding:0 12px; height:30px; }
+        .asg-btns button.go { border:none; background:#ea580c; color:#fff; }
+        .asg-sub { font-size:12px; font-weight:900; color:#9a3412; }
+        .asg-sub span { font-weight:700; color:#c2410c; opacity:0.8; margin-left:4px; }
+        .asg-chips { display:flex; flex-wrap:wrap; gap:6px; }
+        .asg-chip { height:32px; padding:0 12px; border:1.5px solid #fed7aa; background:#fff; color:#94a3b8; border-radius:999px; font:inherit; font-size:13px; font-weight:800; cursor:pointer; }
+        .asg-chip b { margin-left:2px; font-weight:900; }
+        .asg-chip.on { border-color:#ea580c; background:#ea580c; color:#fff; }
+        .asg-chip.off { border-style:dashed; border-color:#ea580c; color:#c2410c; }
+        .asg-un { display:inline-flex; align-items:center; height:32px; padding:0 12px; border-radius:999px; background:#fee2e2; color:#b91c1c; font-size:13px; font-weight:900; }
+        .asg-msg { font-size:12.5px; font-weight:800; color:#9a3412; }
+        .asg-msg.warn { color:var(--red); }
+        .asg-aptcard { margin-bottom:12px; padding:10px 12px; border:1.5px dashed #fdba74; background:#fffaf5; border-radius:var(--radius-sub); display:flex; flex-direction:column; gap:8px; font-size:14px; font-weight:900; color:#9a3412; }
+        .asg-who { display:flex; flex-wrap:wrap; gap:6px; }
+        .asg-who button { height:34px; padding:0 14px; border:1.5px solid var(--border); background:var(--card-color); color:var(--text-sub); border-radius:8px; font:inherit; font-size:13.5px; font-weight:900; cursor:pointer; }
+        .asg-who button.on { border-color:#ea580c; background:#ea580c; color:#fff; }
+        .asg-foot { padding:10px 14px 12px; border-top:1.5px dashed #fdba74; background:#fffaf5; display:flex; flex-direction:column; gap:8px; }
+        .asg-sur { display:flex; align-items:center; gap:6px; }
+        .asg-sur > span { font-size:12.5px; font-weight:900; color:#c2410c; }
+        .asg-sur .pay-rate { width:84px; flex:0 0 auto; }
+        .asg-sur > span.u { font-size:12.5px; font-weight:700; color:var(--text-sub); }
+        .dlog-sur { padding:6px 4px 10px; border-bottom:1px solid #e2e8f0; }
+        .dlog-sur .u { margin-right:auto; }
+        .dlog-sur button { flex:0 0 auto; height:34px; padding:0 10px; border:1px solid var(--border); background:var(--card-color); color:var(--text-sub); border-radius:8px; font:inherit; font-size:12.5px; font-weight:800; cursor:pointer; }
+        .dlog-sur button.go { border:none; background:#ea580c; color:#fff; }
+        .asg-badges { display:flex; flex-wrap:wrap; gap:6px; padding:8px 16px 0; }
+        .asg-b { font-size:12px; font-weight:900; padding:2px 8px; border-radius:6px; }
+        .asg-b.who { background:var(--blue-light); color:#1d4ed8; }
+        .asg-b.un { background:#fee2e2; color:#b91c1c; }
+        .asg-b.sur { background:#fff7ed; color:#c2410c; border:1px solid #fdba74; }
+        /* [수정 2026-10-27] 아이디 칸(누르면 전환) + 따로 떨어진 로그아웃 단추 */
+        .set-out { display:flex; align-items:stretch; gap:6px; margin-top:12px; }
+        .set-me { flex:1; min-width:0; display:flex; align-items:center; gap:8px; padding:11px 12px; border:1px solid #e2e8f0; background:#f8fafc; border-radius:10px; font:inherit; font-size:13px; font-weight:700; color:#475569; text-align:left; cursor:pointer; }
+        .set-me:disabled { cursor:default; color:#64748b; }
+        .set-me span { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+        .set-me em { flex:0 0 auto; font-style:normal; font-size:12px; font-weight:800; color:var(--primary-hover); }
+        .set-me em:empty { display:none; }
+        .set-logout { flex:0 0 auto; padding:0 14px; border:1px solid #e2e8f0; background:var(--card-color); border-radius:10px; font:inherit; font-size:13px; font-weight:800; color:#475569; cursor:pointer; }
+        /* [신규 2026-10-27] 기사 전환 / 관리자 전환 줄 — 아이디 줄 바로 아래 */
+        .set-view { display:flex; align-items:center; gap:6px; margin-top:6px; padding:6px 6px 6px 12px; border:1px solid #e2e8f0; border-radius:10px; font-size:13px; font-weight:700; color:#64748b; }
+        .set-view > span { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+        .set-view b { color:var(--text-main); font-weight:900; }
+        .set-view select { flex:1; min-width:0; height:32px; padding:0 6px; border:1.5px solid var(--border); border-radius:8px; font:inherit; font-size:13px; font-weight:800; color:var(--text-main); background:var(--card-color); }
+        .set-view button { flex:0 0 auto; height:32px; padding:0 12px; border:1px solid var(--border); background:var(--card-color); color:var(--text-sub); border-radius:8px; font:inherit; font-size:12.5px; font-weight:800; cursor:pointer; }
+        .set-view button.go { border:none; background:var(--primary); color:#fff; }
     </style>
     <div id="settings-modal" style="display:none; position:fixed; z-index:10050; left:0; top:0; width:100%; height:100%; background:rgba(15,23,42,0.55); align-items:center; justify-content:center; padding:14px; box-sizing:border-box;" onclick="if(event.target===this) closeSettings()">
         <div style="background:#fff; border-radius:16px; width:100%; max-width:380px; overflow:hidden; box-shadow:0 20px 50px rgba(0,0,0,0.25);">
@@ -5458,10 +6091,18 @@
                 <button type="button" data-store-only onclick="openManual()" class="set-row"><span>배달 추가</span><i>›</i></button>
                 <!-- [신규] 배달 기록 — 그날 누가 어느 집에 갔는지 (가게 계정만) -->
                 <button type="button" data-store-only onclick="openDlog()" class="set-row"><span>배달 기록</span><i>›</i></button>
+                <!-- [신규 2026-10-27] 배정 — 누르면 배달 화면이 배정 화면으로 바뀐다 (가게만) -->
+                <button type="button" data-store-only onclick="asgOpen()" class="set-row"><span>배정</span><i>›</i></button>
                 <!-- [신규] 정산 — 가게는 전체 기사, 배달기사는 본인 것만 -->
                 <button type="button" id="btn-open-pay" onclick="openPay()" class="set-row"><span>정산</span><i>›</i></button>
                 <!-- [신규] 가게 로그인 — 누가 로그인했는지 보이고 로그아웃한다 (배달기사도 보인다) -->
-                <button type="button" onclick="settingsSignOut()" class="set-out"><span id="staff-me-label">로그인 정보</span><b>로그아웃</b></button>
+                <!-- [수정 2026-10-27] 아이디와 로그아웃을 나눴다 (사장님 요청). 가게 사람은 아이디를 누르면 기사 전환 / 관리자 전환 -->
+                <div class="set-out">
+                    <button type="button" id="staff-me-btn" class="set-me" onclick="gViewMeClick()"><span id="staff-me-label">로그인 정보</span><em id="staff-me-hint"></em></button>
+                    <button type="button" class="set-logout" onclick="settingsSignOut()">로그아웃</button>
+                </div>
+                <!-- 기사 고르기 — 아이디를 누르면 열린다 (gViewSwitchRender) -->
+                <div id="set-view" class="set-view" style="display:none;"></div>
             </div>
         </div>
     </div>
@@ -5557,6 +6198,34 @@
         .pay-cal-amt { height:48px; }
         .pay-cal-amt em { font-style:normal; font-size:9.5px; font-weight:800; color:var(--primary-hover); line-height:1.1; font-variant-numeric:tabular-nums; letter-spacing:-0.3px; }
         .pay-cal-amt.sur em { color:#c2410c; }
+        /* [신규 2026-10-27] 기사 달력 — 다 지급된 날은 초록 칸 + 금액 밑에 '지급완료' (할증 날이면 주황 테두리는 그대로).
+           글자가 한 줄 늘어서 기사 달력 칸은 조금 높게 */
+        .pay-me .pay-cal-amt { height:58px; }
+        .pay-cal-d.paid { background:#d1fae5; border-color:#6ee7b7; }
+        .pay-cal-d.paid.sur { border-color:#fdba74; }
+        .pay-cal-d.tap { cursor:pointer; }
+        .pay-cal-d.pick { outline:2px solid var(--blue); outline-offset:1px; }
+        /* [신규 2026-10-27] 기사 달력 — 고른 날의 단가별 건수·금액 */
+        .pay-dd { margin:0 12px 12px; padding:10px 12px; border:1px solid var(--border); border-radius:10px; background:var(--bg-color); font-variant-numeric:tabular-nums; }
+        .pay-dd-t { display:flex; align-items:center; font-size:13px; font-weight:900; color:var(--text-main); padding-bottom:6px; }
+        .pay-dd-t button { margin-left:auto; width:26px; height:26px; border:none; background:transparent; color:#94a3b8; font-size:18px; font-weight:800; cursor:pointer; }
+        .pay-dd-row { display:grid; grid-template-columns:1fr auto 86px; gap:8px; align-items:center; min-height:28px; font-size:13px; font-weight:800; color:var(--text-sub); border-top:1px solid #e2e8f0; }
+        .pay-dd-row b { color:var(--text-main); font-weight:900; text-align:right; }
+        .pay-dd-row em { font-style:normal; font-size:11px; font-weight:800; text-align:right; white-space:nowrap; }
+        .pay-dd-row em.ok { color:var(--primary-hover); }
+        .pay-dd-row em.wait { color:var(--secondary); }
+        .pay-dd-row.sur span, .pay-dd-row.sur b { color:#c2410c; }
+        .pay-dd-row.sur span { padding:4px 0; line-height:1.25; }
+        .pay-dd-row.sur span small { display:block; font-size:11px; font-weight:700; opacity:0.85; }   /* 할증(날씨) 밑에 '500원 × 2건', 할증(무게) 밑에 이유 */
+        .pay-dd-row.sum span { color:var(--text-main); font-weight:900; }
+        .pay-dd-row.sum b { color:var(--primary-hover); }
+        .pay-cal-d .pd { font-size:8.5px; font-weight:900; color:var(--primary-hover); line-height:1.15; letter-spacing:-0.4px; white-space:nowrap; }
+        .pay-cal-key { display:flex; gap:12px; justify-content:flex-end; padding:8px 12px 4px; font-size:11px; font-weight:800; color:var(--text-sub); }
+        .pay-cal-key span { display:flex; align-items:center; gap:4px; }
+        .pay-cal-key i { width:13px; height:13px; box-sizing:border-box; border-radius:3px; border:1px solid; font-style:normal; font-size:9px; line-height:11px; text-align:center; color:var(--primary-hover); }
+        .pay-cal-key .k-paid { background:#d1fae5; border-color:#6ee7b7; }
+        .pay-cal-key .k-sur { background:#fff7ed; border-color:#fdba74; }
+        .pay-sur-cnt { font-style:normal; color:#c2410c; }
         /* [신규] 배달 기록·정산 전체 달력 */
         .gcal { padding:2px 0 4px; }
         button.gcal-d { font:inherit; padding:0; cursor:pointer; width:100%; }
@@ -5593,6 +6262,22 @@
         .pay-hrow .c { text-align:center; }
         .pay-hrow .r { font-weight:900; }
         .pay-hrow .d { white-space:nowrap; }
+        .pay-rng-n { display:block; font-size:9.5px; font-weight:800; color:var(--text-sub); line-height:1.1; }
+        /* [신규 2026-10-27] 지급 창 — 기사 줄 바로 아래에 기간을 골라 지급 */
+        .pay-paybox { background:var(--primary-light); border-top:1px solid #a7f3d0; padding:10px 10px 12px; display:flex; flex-direction:column; gap:8px; }
+        .pay-paybox-t { font-size:11.5px; font-weight:900; color:var(--primary-hover); }
+        .pay-paybox-dates { display:flex; align-items:center; gap:6px; }
+        .pay-paybox-dates input { flex:1; min-width:0; height:36px; box-sizing:border-box; padding:0 6px; border:1.5px solid var(--border); border-radius:8px; font:inherit; font-size:13.5px; font-weight:800; color:var(--text-main); background:var(--card-color); }
+        .pay-paybox-dates span { font-weight:900; color:var(--text-sub); }
+        .pay-paybox-q { display:flex; flex-wrap:wrap; gap:6px; }
+        .pay-paybox-q button { height:28px; padding:0 10px; border:1px solid var(--border); background:var(--card-color); color:var(--text-sub); border-radius:14px; font:inherit; font-size:12px; font-weight:800; cursor:pointer; }
+        .pay-paybox-sum { font-size:13.5px; font-weight:800; color:var(--text-main); font-variant-numeric:tabular-nums; }
+        .pay-paybox-sum b { color:var(--primary-hover); font-weight:900; }
+        .pay-paybox-sum .warn { color:var(--secondary); }
+        .pay-paybox-btn { display:flex; gap:6px; }
+        .pay-paybox-btn button { flex:1; height:38px; border:1px solid var(--border); background:var(--card-color); color:var(--text-sub); border-radius:8px; font:inherit; font-size:13.5px; font-weight:900; cursor:pointer; }
+        .pay-paybox-btn button.go { flex:2; border:none; background:var(--primary); color:#fff; }
+        .pay-paybox-btn button.go:disabled { background:#cbd5e1; cursor:default; }
         .pay-hrow.due { color:var(--secondary); }
         .pay-hrow button { height:24px; padding:0 8px; border:1px solid var(--border); background:var(--card-color); color:var(--text-sub); border-radius:6px; font:inherit; font-size:11px; font-weight:800; cursor:pointer; }
         .pay-empty { padding:30px 0; text-align:center; font-size:13px; font-weight:800; color:#94a3b8; }
