@@ -2980,7 +2980,7 @@
             document.getElementById('asg-fav-title').textContent = `출근 · ${p.label}`;
             document.getElementById('asg-fav-body').innerHTML = `
                 <input type="search" id="asg-fav-q" class="asg-fav-q" placeholder="이름 찾기" aria-label="이름 찾기" autocomplete="off" oninput="asgShiftRender()">
-                <div id="asg-fav-list" style="display:flex; flex-direction:column; gap:6px;"></div>`;
+                <div id="asg-fav-list" class="asg-grid sm"></div>`;
             asgShiftRender();
             document.getElementById('asg-fav-modal').style.display = 'flex';
         }
@@ -3235,13 +3235,13 @@
                     <label class="pay-rate"><input type="text" inputmode="numeric" id="asg-w-amt" placeholder="${asgWeatherAmt.toLocaleString()}" aria-label="할증(날씨) 금액" value="${D.weather ? D.weather.toLocaleString() : ''}" ${num} onchange="asgWeatherAmtFrom(this)"></label>
                 </div>
                 <div class="asg-fav-sec">할증(거리) — 아파트마다 기본 단가 · 카드에서 거리를 체크한 집에만 붙어요</div>
-                ${apts.map(a => {
+                <div class="asg-grid">${apts.map(a => {
                     const v = parseInt(asgDist[asgDistKey(a)]) || 0;
                     return `<div class="asg-dist-row">
                         <span class="nm">${gEsc(a)}${today.has(a) ? '<em>오늘</em>' : ''}</span>
                         <label class="pay-rate"><input type="text" inputmode="numeric" placeholder="0" aria-label="${gEsc(a)} 할증(거리)" value="${v ? v.toLocaleString() : ''}" ${num} onchange="asgDistAptFrom(this, '${encAttr(a)}')"></label>
                     </div>`;
-                }).join('') || '<div class="pay-empty">아파트가 없습니다.</div>'}`;
+                }).join('') || '<div class="pay-empty">아파트가 없습니다.</div>'}</div>`;
             document.getElementById('asg-sur-modal').style.display = 'flex';
         }
         function asgSurClose() { document.getElementById('asg-sur-modal').style.display = 'none'; renderFilteredData(); }
@@ -6647,6 +6647,14 @@
         .asg-fav-row .n { flex:0 0 auto; font-size:12px; font-weight:800; color:#c2410c; }
         .asg-fav-row .star { flex:0 0 auto; width:48px; border:none; border-left:1px solid #e2e8f0; background:transparent; font-size:20px; color:#cbd5e1; cursor:pointer; }
         .asg-fav-row .star.on { color:#f59e0b; }
+        /* [신규 2026-10-27] 출근·할증 창 줄을 여러 칸으로 나란히 — 컴퓨터 창에서 너무 길었다 (사장님). 폰은 한 칸 */
+        .asg-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(240px, 1fr)); gap:6px; }
+        .asg-grid.sm { grid-template-columns:repeat(auto-fill, minmax(180px, 1fr)); }
+        .asg-grid > .asg-fav-sec, .asg-grid > .asg-fav-hint, .asg-grid > .pay-empty, .asg-grid > .asg-fav-save { grid-column:1 / -1; }
+        .asg-grid .asg-fav-row .pick { min-height:44px; padding:0 10px; gap:8px; }
+        .asg-grid .asg-fav-row .star { width:40px; }
+        .asg-grid .asg-dist-row { min-height:42px; padding:0 8px 0 12px; }
+        #asg-sur-body .asg-grid { grid-template-columns:repeat(auto-fill, minmax(220px, 1fr)); }   /* 할증 창은 넓게 — 컴퓨터에서 3칸 */
         .asg-fav-save { margin-top:10px; height:46px; border:none; background:#ea580c; color:#fff; border-radius:10px; font:inherit; font-size:15px; font-weight:900; cursor:pointer; }
         .asg-un { display:inline-flex; align-items:center; height:32px; padding:0 12px; border-radius:999px; background:#fee2e2; color:#b91c1c; font-size:13px; font-weight:900; }
         .asg-msg { font-size:12.5px; font-weight:800; color:#9a3412; }
@@ -7072,7 +7080,7 @@
 
     <!-- [수정 2026-10-27] 출근 창 — 배정 띠의 '출근' 단추로 연다 (asgShiftOpen). 줄을 누르면 출근, ★ 는 즐겨찾기 -->
     <div id="asg-fav-modal" style="display:none; position:fixed; z-index:10053; left:0; top:0; width:100%; height:100%; background:rgba(15,23,42,0.55); align-items:center; justify-content:center; padding:14px; box-sizing:border-box;" onclick="if(event.target===this) asgShiftClose()">
-        <div style="background:#fff; border-radius:16px; width:100%; max-width:440px; height:min(88vh, 760px); display:flex; flex-direction:column; overflow:hidden; box-shadow:0 20px 50px rgba(0,0,0,0.25);">
+        <div class="asg-pop" style="background:#fff; border-radius:16px; width:100%; max-width:640px; max-height:min(88vh, 760px); display:flex; flex-direction:column; overflow:hidden; box-shadow:0 20px 50px rgba(0,0,0,0.25);"><!-- [수정 2026-10-27] 높이는 내용만큼 (너무 길었다 — 사장님) -->
             <div style="padding:13px 15px; border-bottom:1px solid #e2e8f0; display:flex; align-items:center; gap:8px;">
                 <div id="asg-fav-title" style="flex:1; font-size:15px; font-weight:900; color:#0f172a;">출근</div>
                 <span onclick="asgShiftClose()" style="flex:0 0 auto; font-size:24px; font-weight:800; color:#94a3b8; cursor:pointer; line-height:1;">&times;</span>
@@ -7087,7 +7095,7 @@
 
     <!-- [신규 2026-10-27] 할증 창 — 배정 띠의 '할증' 단추로 연다 (asgSurOpen). 할증(날씨) + 아파트별 할증(거리) 기본 단가 -->
     <div id="asg-sur-modal" style="display:none; position:fixed; z-index:10053; left:0; top:0; width:100%; height:100%; background:rgba(15,23,42,0.55); align-items:center; justify-content:center; padding:14px; box-sizing:border-box;" onclick="if(event.target===this) asgSurClose()">
-        <div style="background:#fff; border-radius:16px; width:100%; max-width:440px; height:min(88vh, 760px); display:flex; flex-direction:column; overflow:hidden; box-shadow:0 20px 50px rgba(0,0,0,0.25);">
+        <div class="asg-pop" style="background:#fff; border-radius:16px; width:100%; max-width:780px; max-height:min(88vh, 760px); display:flex; flex-direction:column; overflow:hidden; box-shadow:0 20px 50px rgba(0,0,0,0.25);"><!-- [수정 2026-10-27] 높이는 내용만큼 (너무 길었다 — 사장님) -->
             <div style="padding:13px 15px; border-bottom:1px solid #e2e8f0; display:flex; align-items:center; gap:8px;">
                 <div id="asg-sur-title" style="flex:1; font-size:15px; font-weight:900; color:#0f172a;">할증</div>
                 <span onclick="asgSurClose()" style="flex:0 0 auto; font-size:24px; font-weight:800; color:#94a3b8; cursor:pointer; line-height:1;">&times;</span>
