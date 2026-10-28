@@ -774,6 +774,8 @@
          세 프로그램(주문관리·배달기사·가격표 생성기)에 같은 코드가 들어 있다. 고칠 때는 셋 다 고친다. -->
     <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-auth-compat.js"></script>
+    <!-- [신규 2026-10-28] 주문 실시간 받기 (주문관리와 같은 방식) -->
+    <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-database-compat.js"></script>
     <style>
         #staff-gate { position:fixed; inset:0; z-index:2147483000; background:#f1f5f9; display:none; align-items:center; justify-content:center; padding:16px; box-sizing:border-box; }
         #staff-gate .sg-card { background:#fff; border-radius:18px; width:100%; max-width:380px; padding:22px 20px 20px; box-shadow:0 18px 40px rgba(15,23,42,.12); box-sizing:border-box; color:#0f172a; font-family:"Pretendard","Noto Sans KR",sans-serif; }
@@ -1843,8 +1845,8 @@
             if (syncDotEl) syncDotEl.style.backgroundColor = "#eab308";
 
             try {
-                const [response, pwdRes, comRes, pfRes, omRes, manRes] = await Promise.all([
-                    fetch(`${FIREBASE_DB_URL}orders.json`),
+                const [ordersData, pwdRes, comRes, pfRes, omRes, manRes] = await Promise.all([
+                    gGetOrdersData(),   // [수정 2026-10-28] 실시간 연결로 받는다 (안 되면 예전처럼 한 번 받기)
                     fetch(`${FIREBASE_DB_URL}entrance_passwords.json`).catch(e => null),
                     fetch(`${FIREBASE_DB_URL}entrance_common.json`).catch(e => null),
                     fetch(`${FIREBASE_DB_URL}print_fixed_memos.json`).catch(e => null),
@@ -1855,8 +1857,7 @@
                 try { if (manRes && manRes.ok) manualDeliveries = (await manRes.json()) || {}; } catch (e) { }
                 try { localStorage.setItem('moket_manual_cache', JSON.stringify(manualDeliveries)); } catch (e) { }
 
-                if (!response.ok) throw new Error("Firebase 연결 실패");
-                const data = await response.json() || {};
+                const data = ordersData || {};
 
                 // 캐시 업데이트
                 try {
@@ -1890,6 +1891,109 @@
                     localStorage.setItem('moket_rider_memos_cache', JSON.stringify({ p: riderPrintMemos, o: riderOrderMemos }));
                 } catch (e) {}
 
+                gBuildRawOrders(data);
+
+                const now = new Date();
+                const nowStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+                if (syncTimeTextEl) syncTimeTextEl.innerText = liveOrders.ready ? `${nowStr} 실시간` : `${nowStr} 동기화 완료`;
+                if (syncDotEl) syncDotEl.style.backgroundColor = "var(--primary)";
+
+                if (isManualRefresh) {
+                    showToast("최신 주문 데이터가 동기화되었습니다.");
+                    // [수정] 갱신해도 보고 있던 날짜·아파트·동을 그대로 둔다.
+                    //  예전에는 여기서 셋 다 지워 오늘·전체로 되돌렸는데,
+                    //  배달 도중 갱신을 누르면 보던 자리를 잃어 매번 다시 찾아 들어가야 했다.
+                    // [신규] 다른 기사가 처리한 것도 보이게 배달 기록을 다시 받는다 (보이는 날짜만)
+                    deliveryRecordCache = {};
+                }
+
+                buildDateTabs();
+
+                // [신규] 비번이 빈 동·호수는 손님이 적어 둔 공동현관 입력값으로 채운다
+                // [수정 2026-10-26] 비번 목록을 못 받았으면 돌리지 않는다 — 빈 목록으로 돌면 3~4호 칸이 있어도 '3호' 칸을 새로 만들었다
+                if (pwdLoadedFresh) gAutoFillEntrancePwd().catch(e => console.warn('비번 자동 채우기 실패:', e));
+            } catch (e) {
+                console.error(e);
+                showToast("데이터를 로드하지 못했습니다.");
+                if (syncTimeTextEl) syncTimeTextEl.innerText = "동기화 실패";
+                if (syncDotEl) syncDotEl.style.backgroundColor = "var(--red)";
+            } finally {
+                hideLoader();
+            }
+        }
+
+        /* ===== [신규 2026-10-28] 주문 실시간 받기 (사장님 요청 — 주문관리처럼) =====
+           예전에는 앱을 열 때 한 번만 받아, 가게에서 취소하거나 배달비가 붙어도 '🔄 갱신'을 누르기 전에는 몰랐다.
+           (10/28 더샵: 마늘을 취소했는데 기사 화면엔 그대로라, 배달하면서 취소가 풀리고 배달비 줄만 남았다)
+           이제 서버와 연결을 열어 두고, 바뀐 손님 것만 받는다. 처음 한 번 전체를 받는 양은 예전과 같다.
+           · 오늘 날짜 주문이 바뀐 손님이 있으면 → 화면을 다시 그린다 (보던 자리는 그대로)
+           · 다른 날짜만 바뀌었으면 → 자료만 조용히 고쳐 둔다
+           · 연결이 안 되면 예전처럼 한 번 받기로 돌아간다 */
+        const liveOrders = { on: false, ready: false, data: {}, timer: null, render: false };
+        function gTodayYmd() {
+            const d = new Date();
+            return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        }
+        // 한 손님 서랍에 오늘 받는 주문이 있나
+        function gNodeTouchesToday(node) {
+            if (!node || typeof node !== 'object') return false;
+            const t = gTodayYmd();
+            return Object.values(node).some(it => it && typeof it === 'object' && getOrderDateInfo(it).dateStr === t);
+        }
+        async function gGetOrdersData() {
+            if (liveOrders.ready) return liveOrders.data;   // 실시간 연결이 이미 최신이다
+            if (!liveOrders.on && typeof firebase !== 'undefined' && firebase.database) {
+                try { return await gStartOrdersLive(); }
+                catch (e) { console.warn('실시간 연결 실패 — 한 번 받기로 돌아감:', e); liveOrders.on = false; }
+            }
+            const r = await fetch(`${FIREBASE_DB_URL}orders.json`);
+            if (!r.ok) throw new Error("Firebase 연결 실패");
+            return (await r.json()) || {};
+        }
+        async function gStartOrdersLive() {
+            liveOrders.on = true;
+            const ref = firebase.database().ref('orders');
+            const snap = await Promise.race([
+                ref.once('value'),
+                new Promise((_, rej) => setTimeout(() => rej(new Error('실시간 연결 시간 초과')), 20000))
+            ]);
+            liveOrders.data = snap.val() || {};
+            liveOrders.ready = true;
+            // 붙이는 순간 이미 있는 손님마다 child_added가 한 번씩 오는데, 받아 둔 것이라 넘긴다 (새 손님만 받는다)
+            ref.on('child_added', s => { if (s.key in liveOrders.data) return; gLiveSet(s.key, s.val()); });
+            ref.on('child_changed', s => gLiveSet(s.key, s.val()));
+            ref.on('child_removed', s => gLiveSet(s.key, null));
+            // 연결이 끊기면 점을 노랗게, 다시 붙으면 초록으로
+            try {
+                firebase.database().ref('.info/connected').on('value', c => {
+                    const dot = document.querySelector('.sync-dot'), txt = document.getElementById('sync-time-text');
+                    if (dot) dot.style.backgroundColor = c.val() ? 'var(--primary)' : '#eab308';
+                    if (txt && !c.val()) txt.innerText = '연결 끊김';
+                });
+            } catch (e) { }
+            return liveOrders.data;
+        }
+        function gLiveSet(key, val) {
+            const before = liveOrders.data[key];
+            if (val) liveOrders.data[key] = val; else delete liveOrders.data[key];
+            if (gNodeTouchesToday(before) || gNodeTouchesToday(val)) liveOrders.render = true;
+            clearTimeout(liveOrders.timer);
+            liveOrders.timer = setTimeout(gLiveFlush, 600);   // 여러 줄이 한꺼번에 바뀌면 모아서 한 번만
+        }
+        function gLiveFlush() {
+            const doRender = liveOrders.render;
+            liveOrders.render = false;
+            gBuildRawOrders(liveOrders.data);
+            if (!doRender) return;
+            const y = window.scrollY;
+            try { renderFilteredData(); } catch (e) { console.warn('실시간 화면 고치기 실패:', e); }
+            window.scrollTo(0, y);
+            const now = new Date(), txt = document.getElementById('sync-time-text');
+            if (txt) txt.innerText = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')} 실시간`;
+        }
+
+        // 서버에서 받은 주문(손님 서랍 → 줄)을 배달 목록(rawOrders)으로 만든다
+        function gBuildRawOrders(data) {
                 rawOrders = [];
                 for (const phone in data) {
                     if (!data[phone] || typeof data[phone] !== 'object') continue;
@@ -1963,34 +2067,6 @@
 
                 // 타임스탬프 기준 내림차순 정렬
                 rawOrders.sort((a, b) => parseTimestampToDate(b.timestamp) - parseTimestampToDate(a.timestamp));
-
-                const now = new Date();
-                const nowStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-                if (syncTimeTextEl) syncTimeTextEl.innerText = `${nowStr} 동기화 완료`;
-                if (syncDotEl) syncDotEl.style.backgroundColor = "var(--primary)";
-
-                if (isManualRefresh) {
-                    showToast("최신 주문 데이터가 동기화되었습니다.");
-                    // [수정] 갱신해도 보고 있던 날짜·아파트·동을 그대로 둔다.
-                    //  예전에는 여기서 셋 다 지워 오늘·전체로 되돌렸는데,
-                    //  배달 도중 갱신을 누르면 보던 자리를 잃어 매번 다시 찾아 들어가야 했다.
-                    // [신규] 다른 기사가 처리한 것도 보이게 배달 기록을 다시 받는다 (보이는 날짜만)
-                    deliveryRecordCache = {};
-                }
-
-                buildDateTabs();
-
-                // [신규] 비번이 빈 동·호수는 손님이 적어 둔 공동현관 입력값으로 채운다
-                // [수정 2026-10-26] 비번 목록을 못 받았으면 돌리지 않는다 — 빈 목록으로 돌면 3~4호 칸이 있어도 '3호' 칸을 새로 만들었다
-                if (pwdLoadedFresh) gAutoFillEntrancePwd().catch(e => console.warn('비번 자동 채우기 실패:', e));
-            } catch (e) {
-                console.error(e);
-                showToast("데이터를 로드하지 못했습니다.");
-                if (syncTimeTextEl) syncTimeTextEl.innerText = "동기화 실패";
-                if (syncDotEl) syncDotEl.style.backgroundColor = "var(--red)";
-            } finally {
-                hideLoader();
-            }
         }
 
         function handleMonthChange(value) {
