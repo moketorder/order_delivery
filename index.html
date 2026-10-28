@@ -2833,7 +2833,7 @@
             const p = gDelivParts(item);
             if (!p) return false;
             if (!asgMonth[p.month]) { asgEnsure(p.month); return false; }
-            const a = asgSavedOf(p.month, p.day, gHouseKeyOf(item));
+            const a = asgSavedOf(p.month, p.day, gPartKeyOf(item));
             return !!(a && a.rider && a.rider === payMe().uid);
         }
         // 고치는 중인 하루 (처음이면 저장된 것을 베껴 온다)
@@ -2854,7 +2854,7 @@
             const map = {};
             rawOrders.forEach(o => {
                 if (getOrderDateInfo(o).dateStr !== p.ymd) return;
-                const h = gHouseKeyOf(o);
+                const h = gPartKeyOf(o);
                 if (!h) return;
                 const x = map[h] = map[h] || { house: h, apt: extractApartmentName(o.address), done: true, rows: [] };
                 x.rows.push(o);
@@ -3255,7 +3255,7 @@
             const D = asgDraft(p);
             let un = 0; const seen = new Set();
             (list || []).forEach(o => {
-                const h = gHouseKeyOf(o); if (!h || seen.has(h)) return; seen.add(h);
+                const h = gPartKeyOf(o); if (!h || seen.has(h)) return; seen.add(h);
                 const a = D.h[h];
                 if (!(a && a.rider) && o.status !== '배달완료') un++;
             });
@@ -3377,7 +3377,7 @@
         }
         // 카드 아래 — 배정 화면이면 담당 고르기 + 할증 칸 (전화·완료 단추 대신)
         function asgCardFootHtml(rep) {
-            const p = asgCurParts(), parts = gDelivParts(rep), house = gHouseKeyOf(rep);
+            const p = asgCurParts(), parts = gDelivParts(rep), house = gPartKeyOf(rep);
             if (!p || !parts || parts.ymd !== p.ymd || !house) return `<div class="asg-foot"><span class="asg-msg">이 카드는 다른 날 배달입니다.</span></div>`;
             const D = asgDraft(p), a = D.h[house] || {};
             const ppl = asgPeople().filter(s => D.shift[s.uid] || s.uid === a.rider);
@@ -3410,7 +3410,7 @@
         }
         // 카드 위 작은 표 — 담당(가게만 · 배정 화면 아닐 때) · 할증 · 미배정(배정 화면)
         function asgCardBadgeHtml(rep) {
-            const parts = gDelivParts(rep), house = gHouseKeyOf(rep);
+            const parts = gDelivParts(rep), house = gPartKeyOf(rep);
             if (!parts || !house) return '';
             const cur = asgCurParts();
             const a = (asgOn && cur && cur.ymd === parts.ymd) ? (asgDraft(cur).h[house] || null) : asgSavedOf(parts.month, parts.day, house);
@@ -4442,7 +4442,7 @@
            사진은 delivery_photos/집키/주문키 에 있다. 집마다 주문키 목록만(shallow) 받아 남아 있는지 본다. */
         const dlogPhotoIdx = {};         // 집키 -> [주문키] (받는 중이면 null)
         function dlogPhotoPks(r) {
-            const pks = [String(r.house || '')];
+            const pks = [String(r.house || '').replace(/~\d+$/, '')];   // 두 번째 배달건(집~2)도 사진은 그 집 서랍에 있다
             (r.keys || []).forEach(k => {
                 const o = (rawOrders || []).find(it => it.orderKey === k);
                 const pk = o && String(o.firebasePhoneKey || '').trim();
@@ -5203,7 +5203,8 @@
                 if (!phoneKey) return;
                 /* [수정 2026-10-28] 한 집에 배달완료 줄과 안 간 줄이 섞이면 카드를 둘로 나눈다 (사장님 요청).
                    예전에는 안 간 줄이 남으면 완료 줄을 숨겨, 배달비 줄만 남은 더샵 카드처럼 무엇을 갖다줬는지 안 보였다. */
-                const customerKey = phoneKey + (item.status === '배달완료' ? '|done' : '');
+                // 두 번째 배달건(집~2)은 따로 카드가 된다 — gPartKeyOf
+                const customerKey = phoneKey + '#' + (gPartKeyOf(item) || '') + (item.status === '배달완료' ? '|done' : '');
 
                 if (!customerGroups[customerKey]) {
                     customerGroups[customerKey] = {
@@ -5608,6 +5609,27 @@
             const m = String(getOrderDateInfo(item).dateStr || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
             return m ? { month: `${m[1]}-${m[2]}`, day: m[3], ymd: `${m[1]}-${m[2]}-${m[3]}` } : null;
         }
+        /* [신규 2026-10-28] 배달건 열쇠 — 보통은 집 열쇠 그대로다.
+           한 집에 한 번 배달한 뒤 남은 줄이 있으면(카드 두 개), 남은 줄은 '집~2'라는 두 번째 배달건으로 본다 (사장님 요청).
+           두 번째 배달건도 따로 배정하고, 배달 기록·정산도 따로 센다.
+             · 집~2 기록에 적힌 줄 → 집~2
+             · 아직 안 간 줄인데, 그날 집 기록이 있고 거기에 안 적혀 있으면 → 집~2 (첫 배달 뒤 남은 것)
+             · 나머지 → 집
+           그날 기록을 아직 안 받았으면 받아 오게 하고 일단 집으로 본다 (받으면 다시 그린다). */
+        function gPartKeyOf(item) {
+            const base = gHouseKeyOf(item);
+            if (!base) return base;
+            const parts = gDelivParts(item);
+            if (!parts) return base;
+            const ck = `${parts.month}/${parts.day}`;
+            const day = deliveryRecordCache[ck];
+            if (!day) { gDelivNeed(ck); return base; }
+            const r2 = day[base + '~2'];
+            if (r2 && Array.isArray(r2.keys) && r2.keys.includes(item.orderKey)) return base + '~2';
+            const r1 = day[base];
+            if (item.status !== '배달완료' && r1 && Array.isArray(r1.keys) && r1.keys.length && !r1.keys.includes(item.orderKey)) return base + '~2';
+            return base;
+        }
         function gHouseKeyOf(item) {
             return String((item && (item.firebasePhoneKey || normalizePhoneNumber(item.phone))) || '').replace(/\D/g, '');
         }
@@ -5641,7 +5663,7 @@
             const now = Date.now();
             const groups = {};
             gRowsOfKeys(orderKeys, cleanPhone).forEach(o => {
-                const parts = gDelivParts(o), house = gHouseKeyOf(o);
+                const parts = gDelivParts(o), house = gPartKeyOf(o);
                 if (!parts || !house) return;
                 const id = `${parts.month}/${parts.day}/${house}`;
                 (groups[id] = groups[id] || { parts, house, rows: [] }).rows.push(o);
@@ -5694,7 +5716,7 @@
         // 카드에 '누가 · 언제'를 띄우려고 그 카드의 기록을 찾는다. 아직 안 받은 날짜면 받아 오게 줄 세운다.
         function gDelivRecordOf(orders) {
             for (const o of (orders || [])) {
-                const parts = gDelivParts(o), house = gHouseKeyOf(o);
+                const parts = gDelivParts(o), house = gPartKeyOf(o);
                 if (!parts || !house) continue;
                 const ck = `${parts.month}/${parts.day}`;
                 if (!deliveryRecordCache[ck]) { gDelivNeed(ck); continue; }
