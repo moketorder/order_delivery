@@ -162,11 +162,14 @@
         /* [신규 2026-10-24] 날짜 단추 + 휠 */
         .date-pick-btn { flex:1; min-width:0; height:42px; padding:0 12px 0 14px; border:1px solid #cbd5e1; border-radius:var(--radius-sub); background:#fff; color:var(--text-main); font:inherit; font-size:15px; font-weight:900; display:flex; align-items:center; justify-content:space-between; gap:8px; cursor:pointer; }
         .date-pick-btn svg { flex:0 0 auto; color:#64748b; }
+        .date-pick-btn.locked { cursor:default; background:#f8fafc; }   /* [신규 2026-10-31] 기사 화면 — 오늘로 고정, 누를 수 없음 */
+        .date-pick-btn.locked svg { display:none; }
         /* [신규 2026-10-27] 배정 화면이면 날짜 바로 옆에 '배정 중' (주황) */
         .date-asg-tag { margin-right:auto; flex:0 0 auto; font-style:normal; font-size:12px; font-weight:900; color:#fff; background:#ea580c; padding:3px 8px; border-radius:999px; }
         .date-asg-tag[hidden] { display:none; }
         .date-today-btn { flex:0 0 auto; height:42px; padding:0 14px; border:1px solid #cbd5e1; border-radius:var(--radius-sub); background:#fff; color:#475569; font:inherit; font-size:13.5px; font-weight:800; cursor:pointer; }
         .date-today-btn.on { background:var(--text-main); border-color:var(--text-main); color:#fff; }   /* 오늘을 보고 있을 때 */
+        .date-today-btn.pay, .date-today-btn.pay.on { background:#2563eb; border-color:#2563eb; color:#fff; font-weight:900; }   /* [신규 2026-10-31] 기사 화면 — 정산 단추 */
         .search-date-band { padding:6px 16px; background:#0f172a; color:#fff; font-size:13px; font-weight:800; letter-spacing:-0.2px; }   /* [신규 2026-10-24] 검색 결과 카드의 배달 날짜 */
         .dw-back { position:fixed; inset:0; z-index:10060; background:rgba(15,23,42,.45); display:flex; align-items:flex-end; justify-content:center; }
         .dw-sheet { width:100%; max-width:480px; background:#fff; border-radius:18px 18px 0 0; padding:14px 16px calc(14px + env(safe-area-inset-bottom)); box-sizing:border-box; }
@@ -1065,7 +1068,7 @@
                  화면을 켤 때마다 자동으로 받지 않고, 이 버튼을 누를 때만 최신 주문을 받는다. -->
             <button type="button" id="btn-refresh-orders" class="hd-icon" onclick="loadData(true)" title="새로 받기" aria-label="새로 받기"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><polyline points="21 3 21 9 15 9"/></svg></button>
             <!-- [수정] '🚪 비번' 단추를 '⚙️ 설정'으로 바꿨다. 비번과 아파트 순서를 여기서 고친다. -->
-            <button type="button" class="hd-icon" onclick="openSettings()" title="설정" aria-label="설정"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
+            <button type="button" id="btn-settings" class="hd-icon" onclick="openSettings()" title="설정" aria-label="설정"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
         </div>
     </div>
 
@@ -1086,7 +1089,7 @@
 
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
             </button>
-            <button type="button" id="date-today-btn" class="date-today-btn" onclick="gPickDate(null, null, true)">오늘</button>
+            <button type="button" id="date-today-btn" class="date-today-btn" onclick="gTodayBtnClick()">오늘</button><!-- [수정 2026-10-31] 기사 화면이면 '정산' 단추 -->
         </div>
         <!-- 원래 월 선택 + 날짜 줄 — 안에서 그대로 쓰고 화면에는 숨긴다 -->
         <div style="display:none;">
@@ -2370,6 +2373,7 @@
         }
         let _dw = null;   // 휠 창에서 고르는 중인 값 { m, d }
         function openDateWheel() {
+            if (!gIsStore()) return;   // [신규 2026-10-31] 기사 화면은 날짜를 못 고른다
             const months = gDwMonths(); if (!months.length) return;
             _dw = { m: `${currentYear} ${currentMonth}`, d: currentDay || '전체' };
             const back = document.createElement('div');
@@ -2453,7 +2457,29 @@
         //  currentStatusFilter는 'all'로 고정되어 모든 주문이 보인다.
 
         // 필터링 및 아파트/동 구조 렌더링
+        /* [신규 2026-10-31] 기사 화면은 늘 오늘만 — 날짜 단추는 못 누른다 (사장님 요청).
+           [수정 2026-10-31] [오늘] 단추 자리는 [정산] 단추로, 위 설정(⚙) 단추는 숨긴다 (사장님 요청).
+             설정(로그아웃 · 관리자 전환)은 정산 창 왼쪽 위 ‹ 로 들어간다.
+           가게 화면이면 단추를 다시 살린다. 기사 전환으로 본 화면도 기사 화면이라 오늘만. */
+        function gTodayBtnClick() { if (gIsStore()) gPickDate(null, null, true); else openPay(); }
+        function gRiderDateLock() {
+            const rider = !gIsStore();
+            const pick = document.getElementById('date-pick-btn'), today = document.getElementById('date-today-btn'), gear = document.getElementById('btn-settings');
+            if (pick) { pick.disabled = rider; pick.classList.toggle('locked', rider); }
+            if (today) { today.textContent = rider ? '정산' : '오늘'; today.classList.toggle('pay', rider); }
+            if (gear) gear.style.display = rider ? 'none' : '';
+            if (!rider) return;
+            const n = new Date(), y = n.getFullYear() + '년', m = (n.getMonth() + 1) + '월', d = n.getDate() + '일';
+            if (currentYear === y && currentMonth === m && currentDay === d) return;
+            if (activeApartment && currentYear) lastAptByDay[gDayKey()] = activeApartment;
+            currentYear = y; currentMonth = m; currentDay = d;
+            lastDayByMonth[gMonthKey()] = d;
+            activeApartment = lastAptByDay[gDayKey()] || "";
+            activeDong = activeApartment ? (lastDongByApt[gAptKey(activeApartment)] || "전체") : "전체";
+            gUpdateDatePickLabel();
+        }
         function renderFilteredData() {
+            gRiderDateLock();
             const search = document.getElementById('searchInput').value.toLowerCase().trim();
             const clearBtn = document.getElementById('clearSearchBtn');
             if (clearBtn) clearBtn.style.display = search !== "" ? "flex" : "none";
@@ -2465,7 +2491,7 @@
             //  검색어는 이 범위 안에서 걸린다.
             // [수정 2026-10-24] 검색어가 있으면 날짜와 상관없이 받아 둔 자료 전체에서 찾는다 (사장님 요청)
             let filtered = rawOrders.filter(item => {
-                if (search !== "") return true;
+                if (search !== "" && gIsStore()) return true;   // [수정 2026-10-31] 기사 화면은 찾을 때도 오늘 것만
                 const info = getOrderDateInfo(item);
                 if (!info.dateStr || info.dateStr === "기타") return true; // 날짜를 못 읽는 건은 항상 보여준다
 
