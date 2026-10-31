@@ -169,7 +169,6 @@
         .date-asg-tag[hidden] { display:none; }
         .date-today-btn { flex:0 0 auto; height:42px; padding:0 14px; border:1px solid #cbd5e1; border-radius:var(--radius-sub); background:#fff; color:#475569; font:inherit; font-size:13.5px; font-weight:800; cursor:pointer; }
         .date-today-btn.on { background:var(--text-main); border-color:var(--text-main); color:#fff; }   /* 오늘을 보고 있을 때 */
-        .date-today-btn.pay, .date-today-btn.pay.on { background:#2563eb; border-color:#2563eb; color:#fff; font-weight:900; }   /* [신규 2026-10-31] 기사 화면 — 정산 단추 */
         .search-date-band { padding:6px 16px; background:#0f172a; color:#fff; font-size:13px; font-weight:800; letter-spacing:-0.2px; }   /* [신규 2026-10-24] 검색 결과 카드의 배달 날짜 */
         .dw-back { position:fixed; inset:0; z-index:10060; background:rgba(15,23,42,.45); display:flex; align-items:flex-end; justify-content:center; }
         .dw-sheet { width:100%; max-width:480px; background:#fff; border-radius:18px 18px 0 0; padding:14px 16px calc(14px + env(safe-area-inset-bottom)); box-sizing:border-box; }
@@ -1089,7 +1088,7 @@
 
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
             </button>
-            <button type="button" id="date-today-btn" class="date-today-btn" onclick="gTodayBtnClick()">오늘</button><!-- [수정 2026-10-31] 기사 화면이면 '정산' 단추 -->
+            <button type="button" id="date-today-btn" class="date-today-btn" onclick="gPickDate(null, null, true)">오늘</button><!-- 기사 화면에선 숨긴다 (gRiderDateLock) -->
         </div>
         <!-- 원래 월 선택 + 날짜 줄 — 안에서 그대로 쓰고 화면에는 숨긴다 -->
         <div style="display:none;">
@@ -2458,16 +2457,13 @@
 
         // 필터링 및 아파트/동 구조 렌더링
         /* [신규 2026-10-31] 기사 화면은 늘 오늘만 — 날짜 단추는 못 누른다 (사장님 요청).
-           [수정 2026-10-31] [오늘] 단추 자리는 [정산] 단추로, 위 설정(⚙) 단추는 숨긴다 (사장님 요청).
-             설정(로그아웃 · 관리자 전환)은 정산 창 왼쪽 위 ‹ 로 들어간다.
+           [수정 2026-10-31] [오늘] 단추는 숨긴다. 설정(⚙) 단추는 그대로 둔다 (사장님 — 정산 단추로 바꿨다가 되돌림).
            가게 화면이면 단추를 다시 살린다. 기사 전환으로 본 화면도 기사 화면이라 오늘만. */
-        function gTodayBtnClick() { if (gIsStore()) gPickDate(null, null, true); else openPay(); }
         function gRiderDateLock() {
             const rider = !gIsStore();
-            const pick = document.getElementById('date-pick-btn'), today = document.getElementById('date-today-btn'), gear = document.getElementById('btn-settings');
+            const pick = document.getElementById('date-pick-btn'), today = document.getElementById('date-today-btn');
             if (pick) { pick.disabled = rider; pick.classList.toggle('locked', rider); }
-            if (today) { today.textContent = rider ? '정산' : '오늘'; today.classList.toggle('pay', rider); }
-            if (gear) gear.style.display = rider ? 'none' : '';
+            if (today) today.style.display = rider ? 'none' : '';
             if (!rider) return;
             const n = new Date(), y = n.getFullYear() + '년', m = (n.getMonth() + 1) + '월', d = n.getDate() + '일';
             if (currentYear === y && currentMonth === m && currentDay === d) return;
@@ -4448,37 +4444,83 @@
         function dlogPick(nameEnc) { dlogRider = decAttr(nameEnc); dlogRender(); }
         /* [신규 2026-10-27] 배달 후 힘든 배달 할증 — 배정(rider_assign/달/날/h/집)의 sur(금액)만 고친다.
            배정을 안 한 날이어도 그 집 칸이 새로 생긴다(담당 없이 할증만). 금액을 비우고 저장하면 할증을 뺀다. */
+        /* [수정 2026-10-31] 배달 기록의 할증 — '할증' 단추를 누르면 날씨 · 무게 · 거리 중 하나를 골라 금액을 적는다 (사장님 요청).
+           종류마다 따로 저장된다 (배정 카드의 할증과 같은 자리):
+             · 날씨 → w + wSet (비우면 이 집만 끔 — 그날 날씨 할증이 있으면 noW)
+             · 무게 → sur
+             · 거리 → dist + distSet */
         let dlogSurPick = '';
+        let dlogSurKind = 'w';
+        const DLOG_SUR_KINDS = [['w', '날씨'], ['m', '무게'], ['d', '거리']];
+        function dlogDayW(month, dd) { return parseInt((asgWeather[month] || {})[dd]) || 0; }
+        // 저장된 그 집 할증 세 가지 { w, m, d }
+        function dlogSurVals(month, dd, house) {
+            const a = asgSavedOf(month, dd, house) || {};
+            return {
+                w: a.wSet ? (parseInt(a.w) || 0) : (a.noW ? 0 : dlogDayW(month, dd)),
+                m: parseInt(a.sur) || 0,
+                d: a.distSet ? (parseInt(a.dist) || 0) : 0
+            };
+        }
         function dlogSurEdit(houseEnc) {
             const h = decAttr(houseEnc);
             dlogSurPick = (h && dlogSurPick !== h) ? h : '';
+            if (dlogSurPick) {   // 처음엔 붙어 있는 첫 종류 (없으면 날씨)
+                const ymd = document.getElementById('dlog-date').value;
+                const v = dlogSurVals(ymd.slice(0, 7), ymd.slice(8, 10), dlogSurPick);
+                dlogSurKind = (DLOG_SUR_KINDS.find(([k]) => v[k] > 0) || ['w'])[0];
+            }
             dlogRender();
             if (dlogSurPick) setTimeout(() => { const el = document.getElementById('dlog-sur-a'); if (el) el.focus(); }, 0);
         }
+        function dlogSurKindNext() {
+            const i = DLOG_SUR_KINDS.findIndex(x => x[0] === dlogSurKind);
+            dlogSurKindPick(DLOG_SUR_KINDS[(i + 1) % DLOG_SUR_KINDS.length][0]);
+        }
+        function dlogSurKindPick(k) {
+            dlogSurKind = k;
+            dlogRender();
+            setTimeout(() => { const el = document.getElementById('dlog-sur-a'); if (el) el.focus(); }, 0);
+        }
+        /* [수정 2026-10-31] '저장' 대신 '추가' — 넣어도 창이 안 닫혀 종류를 바꿔 가며 여러 개 넣는다 (사장님 요청).
+           같은 종류를 또 넣으면 그 금액으로 바뀐다 (종류마다 하나). 뺄 때는 넣은 할증 줄의 [삭제] (dlogSurDel) */
         async function dlogSurSave(houseEnc) {
             if (!payIsStore()) return;
-            const house = decAttr(houseEnc);
+            const amt = Math.min(100000, payDigits((document.getElementById('dlog-sur-a') || {}).value || ''));
+            if (!amt) { showToast('금액을 적어 주세요.'); return; }
+            await dlogSurWrite(decAttr(houseEnc), dlogSurKind, amt);
+        }
+        function dlogSurDel(houseEnc, k) { if (payIsStore()) dlogSurWrite(decAttr(houseEnc), k, 0); }
+        async function dlogSurWrite(house, k, amt) {
             const ymd = document.getElementById('dlog-date').value;
             const month = ymd.slice(0, 7), dd = ymd.slice(8, 10);
-            const amt = payDigits((document.getElementById('dlog-sur-a') || {}).value || '');
+            const label = (DLOG_SUR_KINDS.find(x => x[0] === k) || [k, ''])[1];
+            const patch = k === 'w' ? (amt ? { w: amt, wSet: true, noW: null } : { w: null, wSet: null, noW: dlogDayW(month, dd) ? true : null })
+                : k === 'd' ? (amt ? { dist: amt, distSet: true } : { dist: null, distSet: null })
+                : { sur: amt || null, why: null };   // 이유 칸은 뺐다 (예전 값도 지움)
+            const put = o => { Object.entries(patch).forEach(([f, v]) => { if (v === null) delete o[f]; else o[f] = v; }); delete o.why; return o; };
             try {
                 const res = await fetch(`${FIREBASE_DB_URL}rider_assign/${month}/${dd}/h/${encodeURIComponent(house)}.json`, {
                     method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ sur: amt || null, why: null })   // 이유 칸은 뺐다 (예전 값도 지움)
+                    body: JSON.stringify(patch)
                 });
                 if (!res.ok) throw new Error('서버 응답 ' + res.status);
                 const day = ((asgMonth[month] = asgMonth[month] || {})[dd] = (asgMonth[month] || {})[dd] || {});
                 const hm = day.h = day.h || {};
-                const cur = Object.assign({}, hm[house] || {});
-                delete cur.why;
-                if (amt) cur.sur = amt; else delete cur.sur;
+                const cur = put(Object.assign({}, hm[house] || {}));
                 if (Object.keys(cur).length) hm[house] = cur; else delete hm[house];
                 // 배정 화면에서 그날을 고치던 중이면 거기도 맞춘다
                 const dk = `${month}/${dd}`;
-                if (asgDrafts[dk]) { const dh = asgDrafts[dk].h; if (Object.keys(cur).length) { dh[house] = Object.assign({}, dh[house] || {}, { sur: cur.sur }); delete dh[house].why; } else if (dh[house]) { delete dh[house].sur; delete dh[house].why; } }
-                dlogSurPick = '';
-                showToast(amt ? `할증(무게) ${amt.toLocaleString()}원` : '할증(무게) 뺌');
+                if (asgDrafts[dk]) { const dh = asgDrafts[dk].h; const nx = put(Object.assign({}, dh[house] || {})); if (Object.keys(nx).length) dh[house] = nx; else delete dh[house]; }
+                // 넣었으면 아직 안 붙은 다음 종류로 넘긴다 (창은 그대로)
+                if (amt && dlogSurPick === house) {
+                    const v = dlogSurVals(month, dd, house), i = DLOG_SUR_KINDS.findIndex(x => x[0] === k);
+                    const nx = [1, 2].map(j => DLOG_SUR_KINDS[(i + j) % 3][0]).find(kk => !v[kk]);
+                    if (nx) dlogSurKind = nx;
+                }
+                showToast(amt ? `할증(${label}) ${amt.toLocaleString()}원` : `할증(${label}) 뺌`);
                 dlogRender();
+                if (dlogSurPick === house) setTimeout(() => { const el = document.getElementById('dlog-sur-a'); if (el) el.focus(); }, 0);
             } catch (e) { console.warn(e); showToast('⚠️ 할증을 저장하지 못했습니다. (Firebase 규칙 게시 전이면 막혀 있습니다)'); }
         }
 
@@ -4676,20 +4718,25 @@
             const rows = shown.map(r => {
                 const place = [r.apt && r.apt !== '기타' ? `[${r.apt}]` : '', r.detail || ''].join(' ').trim() || '-';
                 // [신규 2026-10-27] 집 할증 (힘든 배달) — 배정에 적힌 것. 가게는 배달 후에도 '할증'으로 붙이고 고친다
-                const ha = asgSavedOf(month, dd, r.house) || {};
-                const hs = parseInt(ha.sur) || 0;
+                const sv = dlogSurVals(month, dd, r.house);   // [수정 2026-10-31] 날씨 · 무게 · 거리 모두
+                // [수정 2026-10-31] 주소 밑에는 할증 합계 하나만 (사장님 요청). 종류별은 '할증'을 누르면 줄마다 보인다
+                const svSum = sv.w + sv.m + sv.d;
+                const svTag = svSum ? `<span class="asg-b sur" style="align-self:flex-start; margin-top:2px;">할증 +${svSum.toLocaleString()}</span>` : '';
                 return `<div class="dlog-row">
                     <span class="t">${hm(r.at)}</span>
-                    <span class="h"><b>${gEsc(place)}${r.manual ? ' <span class="man-tag">✍️ 수기</span>' : ''}</b><span>${gEsc(r.name || '')}${r.items ? ` · ${r.items}개` : ''}${r.manual && r.by ? `${r.name ? ' · ' : ''}${gEsc(r.by)} 추가` : ''}</span>${hs ? `<span class="asg-b sur" style="align-self:flex-start; margin-top:2px;">할증(무게) +${hs.toLocaleString()}</span>` : ''}${parseInt(ha.dist) ? `<span class="asg-b sur" style="align-self:flex-start; margin-top:2px;">할증(거리) +${parseInt(ha.dist).toLocaleString()}</span>` : ''}</span>
-                    <span class="r">${gEsc(r.riderName || '')}${payIsStore() ? `<span class="dlog-btns"><button type="button" class="dlog-ph" onclick="dlogSurEdit('${encAttr(r.house)}')">할증(무게)</button><button type="button" class="man-del" onclick="dlogDel('${encAttr(r.house)}')">삭제</button>${dlogPhotoKey(r)
+                    <span class="h"><b>${gEsc(place)}${r.manual ? ' <span class="man-tag">✍️ 수기</span>' : ''}</b><span>${gEsc(r.name || '')}${r.items ? ` · ${r.items}개` : ''}${r.manual && r.by ? `${r.name ? ' · ' : ''}${gEsc(r.by)} 추가` : ''}</span>${svTag ? `<span class="dlog-surtags">${svTag}</span>` : ''}</span>
+                    <span class="r">${gEsc(r.riderName || '')}${payIsStore() ? `<span class="dlog-btns">${dlogPhotoKey(r)
                         ? `<button type="button" class="dlog-ph" onclick="dlogPhoto('${encAttr(r.house)}')">사진</button>`
-                        : `<button type="button" class="dlog-ph" disabled title="사진 없음">사진</button>`}</span>` : ''}</span>
+                        : `<button type="button" class="dlog-ph" disabled title="사진 없음">사진</button>`}<button type="button" class="dlog-ph" onclick="dlogSurEdit('${encAttr(r.house)}')">할증</button><button type="button" class="man-del" onclick="dlogDel('${encAttr(r.house)}')">삭제</button></span>` : ''}</span>
                 </div>${dlogSurPick === r.house && payIsStore() ? `
+                ${/* [수정 2026-10-31] 넣은 할증은 한 줄씩 (종류 · 금액 · 삭제), 맨 아래는 더 넣는 줄 (사장님 요청) */''}
+                ${DLOG_SUR_KINDS.filter(([k]) => sv[k] > 0).map(([k, t]) => `<div class="dlog-sl"><span>할증(${t})</span><b>${sv[k].toLocaleString()}원</b><button type="button" onclick="dlogSurDel('${encAttr(r.house)}', '${k}')" aria-label="할증(${t}) 삭제">삭제</button></div>`).join('')}
                 <div class="asg-sur dlog-sur">
-                    <span>할증(무게)</span>
-                    <label class="pay-rate"><input type="text" inputmode="numeric" id="dlog-sur-a" placeholder="0" aria-label="할증 금액" value="${hs ? hs.toLocaleString() : ''}" oninput="const n=payDigits(this.value);this.value=n?n.toLocaleString():''"></label>
+                    ${/* [수정 2026-10-31] 종류는 단추 하나 — 누를 때마다 날씨 → 무게 → 거리 (사장님 요청). 한 줄로 */''}
+                    <button type="button" class="dlog-sk" onclick="dlogSurKindNext()" title="눌러서 종류 바꾸기">할증(${(DLOG_SUR_KINDS.find(x => x[0] === dlogSurKind) || ['', ''])[1]}) <i>⇄</i></button>
+                    <label class="pay-rate"><input type="text" inputmode="numeric" id="dlog-sur-a" placeholder="0" aria-label="할증 금액" value="" oninput="const n=payDigits(this.value);this.value=n?n.toLocaleString():''"></label>
                     <span class="u">원</span>
-                    <button type="button" class="go" onclick="dlogSurSave('${encAttr(r.house)}')">저장</button>
+                    <button type="button" class="go" onclick="dlogSurSave('${encAttr(r.house)}')">추가</button>
                     <button type="button" onclick="dlogSurEdit('')">닫기</button>
                 </div>` : ''}`;
             }).join('');
@@ -6956,6 +7003,16 @@
         .asg-sur .pay-rate { width:84px; flex:0 0 auto; }
         .asg-sur > span.u { font-size:12.5px; font-weight:700; color:var(--text-sub); }
         .dlog-sur { padding:6px 4px 10px; border-bottom:1px solid #e2e8f0; }
+        /* [신규 2026-10-31] 배달 기록 할증 — 종류 단추 하나 (누를 때마다 날씨 → 무게 → 거리) */
+        .dlog-sur button.dlog-sk { border-color:#ea580c; background:#fff7ed; color:#c2410c; font-weight:900; white-space:nowrap; }
+        .dlog-sur button.dlog-sk i { font-style:normal; font-size:11px; opacity:0.7; }
+        .dlog-sur .pay-rate { width:72px; }
+        /* [신규 2026-10-31] 배달 기록 — 넣은 할증 한 줄 (종류 · 금액 · 삭제) */
+        .dlog-sl { display:flex; align-items:center; gap:8px; padding:6px 4px 6px 10px; margin-top:4px; border-radius:8px; background:#fff7ed; }
+        .dlog-sl span { flex:1; font-size:12.5px; font-weight:900; color:#c2410c; }
+        .dlog-sl b { font-size:13px; font-weight:900; color:#c2410c; font-variant-numeric:tabular-nums; }
+        .dlog-sl button { flex:0 0 auto; height:28px; padding:0 10px; border:1px solid #fca5a5; background:#fff; color:#dc2626; border-radius:7px; font:inherit; font-size:12px; font-weight:800; cursor:pointer; }   /* [수정 2026-10-31] ✕ 대신 삭제 단추 (사장님 요청) */
+        .dlog-surtags { display:flex; flex-wrap:wrap; gap:4px; }
         .dlog-sur .u { margin-right:auto; }
         .dlog-sur button { flex:0 0 auto; height:34px; padding:0 10px; border:1px solid var(--border); background:var(--card-color); color:var(--text-sub); border-radius:8px; font:inherit; font-size:12.5px; font-weight:800; cursor:pointer; }
         .dlog-sur button.go { border:none; background:#ea580c; color:#fff; }
