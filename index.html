@@ -807,6 +807,22 @@
         #staff-gate .sg-hint { margin-top:6px; text-align:center; font-size:11.5px; font-weight:800; color:#94a3b8; }
         #staff-gate .sg-code { text-align:center; font-size:34px; font-weight:900; letter-spacing:4px; color:#1d4ed8; margin:6px 0 2px; font-variant-numeric:tabular-nums; }
         #staff-gate .sg-err { margin-top:10px; font-size:12px; font-weight:800; color:#dc2626; line-height:1.5; }
+        /* [신규 2026-10-31] 배달기사 로그인 화면 꾸미기 (사장님) — 모켓 초록 바탕·오토바이 표시·이름 크게. 배달기사에만 있다 */
+        #staff-gate.sg-rider { background:linear-gradient(165deg,#d1fae5 0%,#ecfdf5 38%,#f1f5f9 72%,#e0f2fe 100%); flex-direction:column; gap:14px; justify-content:flex-start; overflow-y:auto; padding-block:24px; }
+        /* 가입 화면처럼 길면 잘리지 않고 아래로 밀리게 (위·아래 auto 여백으로 가운데 맞춤) */
+        #staff-gate.sg-rider .sg-card { flex-shrink:0; margin-top:auto; }
+        #staff-gate.sg-rider .sg-foot { margin-bottom:auto; }
+        #staff-gate.sg-rider .sg-card { padding:0 20px 20px; overflow:hidden; border:1px solid #d1fae5; box-shadow:0 24px 48px rgba(6,95,70,.14); }
+        #staff-gate .sg-head { margin:0 -20px 18px; padding:26px 20px 20px; background:linear-gradient(140deg,#10b981,#059669); color:#fff; display:flex; align-items:center; gap:14px; position:relative; }
+        #staff-gate .sg-head::after { content:""; position:absolute; right:-30px; top:-40px; width:150px; height:150px; border-radius:50%; background:rgba(255,255,255,.10); }
+        #staff-gate .sg-mark { flex:0 0 auto; width:52px; height:52px; border-radius:16px; background:#fff; color:#059669; display:flex; align-items:center; justify-content:center; box-shadow:0 6px 14px rgba(4,47,46,.18); }
+        #staff-gate .sg-brand { display:flex; flex-direction:column; gap:3px; position:relative; z-index:1; }
+        #staff-gate .sg-brand b { font-size:24px; font-weight:900; letter-spacing:3px; line-height:1; }
+        #staff-gate .sg-brand span { font-size:13px; font-weight:800; opacity:.92; letter-spacing:.5px; }
+        #staff-gate.sg-rider .sg-google { height:50px; border-color:#a7f3d0; transition:background .15s, border-color .15s; }
+        #staff-gate.sg-rider .sg-google:hover { background:#f0fdf4; border-color:#10b981; }
+        #staff-gate .sg-ttl { display:block; font-size:18px; font-weight:900; color:#0f172a; margin-bottom:6px; }
+        #staff-gate .sg-foot { font-size:11.5px; font-weight:800; color:#64748b; text-align:center; letter-spacing:.3px; }
     </style>
     <script>
     (function () {
@@ -858,7 +874,13 @@
         function show(html) {
             const put = () => {
                 if (!box) { box = document.createElement('div'); box.id = 'staff-gate'; document.body.appendChild(box); }
-                box.innerHTML = `<div class="sg-card"><div class="sg-logo">🔐 MOKET ${APP_NAME}</div>${html}</div>`;
+                // [수정 2026-10-31] 배달기사는 초록 머리띠(오토바이 표시 + MOKET 이름)와 아래 안내 한 줄
+                box.className = APP_KIND === 'rider' ? 'sg-rider' : '';
+                const head = APP_KIND === 'rider'
+                    ? `<div class="sg-head"><div class="sg-mark"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="5.5" cy="17" r="2.5"/><circle cx="18.5" cy="17" r="2.5"/><path d="M8 17h7l2.5-6.5H13"/><path d="M14.5 5.5H17l1.5 9"/><path d="M2.5 12.5h6.5l1.5 4.5"/></svg></div>
+                        <div class="sg-brand"><b>MOKET</b><span>배달기사 앱</span></div></div>`
+                    : `<div class="sg-logo">🔐 MOKET ${APP_NAME}</div>`;
+                box.innerHTML = `<div class="sg-card">${head}${html}</div>` + (APP_KIND === 'rider' ? `<div class="sg-foot">MOKET 직원·배달기사 전용</div>` : '');
                 box.style.display = 'flex';
             };
             if (document.body) put(); else document.addEventListener('DOMContentLoaded', put, { once: true });
@@ -896,19 +918,19 @@
             checking = true;
             try { await check(user); } finally { checking = false; }
         });
-        auth.getRedirectResult().catch(e => { if (e && e.code !== 'auth/no-auth-event') err('로그인하지 못했습니다. (' + (e.code || e.message) + ')'); });
+        auth.getRedirectResult().catch(e => { if (e && e.code !== 'auth/no-auth-event') err('로그인에 실패했어요. 다시 시도해 주세요. (' + (e.code || e.message) + ')'); });
 
         function loginStep() {
             if (inApp) {
                 const isKakao = /KAKAOTALK/i.test(navigator.userAgent);
-                return show(`<div class="sg-sub">이 앱 안에서는 구글 로그인이 막혀 있습니다.<br><b>크롬(아이폰은 사파리)</b>으로 열어 주세요.</div>
-                    ${isKakao ? `<button class="sg-btn sg-main" onclick="location.href='kakaotalk://web/openExternal?url='+encodeURIComponent(location.href)">바깥 브라우저로 열기</button>` : ''}
-                    <button class="sg-btn sg-ghost" onclick="navigator.clipboard && navigator.clipboard.writeText(location.href).then(()=>alert('주소를 복사했습니다. 크롬 주소창에 붙여 넣어 주세요.'))">주소 복사</button>`);
+                return show(`<div class="sg-sub">카카오톡 같은 앱 안의 브라우저에서는 구글 로그인을 쓸 수 없어요.<br><b>크롬(아이폰은 사파리)</b>에서 열어 주세요.</div>
+                    ${isKakao ? `<button class="sg-btn sg-main" onclick="location.href='kakaotalk://web/openExternal?url='+encodeURIComponent(location.href)">다른 브라우저로 열기</button>` : ''}
+                    <button class="sg-btn sg-ghost" onclick="navigator.clipboard && navigator.clipboard.writeText(location.href).then(()=>alert('링크를 복사했어요. 크롬 주소창에 붙여 넣어 주세요.'))">링크 복사</button>`);
             }
-            show(`<div class="sg-sub">가게 사람만 쓸 수 있습니다. 구글 계정으로 로그인해 주세요.<br>처음이면 사용 신청 후 사장님이 허락하면 열립니다.</div>
+            show(`<div class="sg-sub"><b class="sg-ttl">로그인</b>구글 계정으로 로그인해 주세요.<br>처음 이용하시면 가입 신청 후 관리자 승인을 받아야 해요.</div>
                 <button class="sg-btn sg-google" id="sg-google">
                     <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.3 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.3 0-9.7-3.3-11.3-8l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"/></svg>
-                    구글로 로그인</button>
+                    구글 계정으로 로그인</button>
                 <div class="sg-err" id="sg-err"></div>`);
             $('sg-google').onclick = async () => {
                 const provider = new firebase.auth.GoogleAuthProvider();
@@ -916,9 +938,9 @@
                 try { await auth.signInWithPopup(provider); }
                 catch (e) {
                     if (e && /popup-blocked|operation-not-supported|web-storage-unsupported/.test(e.code || '')) {
-                        try { await auth.signInWithRedirect(provider); } catch (e2) { err('로그인하지 못했습니다. (' + (e2.code || e2.message) + ')'); }
+                        try { await auth.signInWithRedirect(provider); } catch (e2) { err('로그인에 실패했어요. 다시 시도해 주세요. (' + (e2.code || e2.message) + ')'); }
                     } else if (e && e.code !== 'auth/popup-closed-by-user' && e.code !== 'auth/cancelled-popup-request') {
-                        err('로그인하지 못했습니다. (' + (e.code || e.message) + ')');
+                        err('로그인에 실패했어요. 다시 시도해 주세요. (' + (e.code || e.message) + ')');
                     }
                 }
             };
@@ -927,7 +949,7 @@
         async function check(user) {
             let staff = null;
             try { staff = await db(`staff/${user.uid}.json`); }
-            catch (e) { return fail('허락 여부를 확인하지 못했습니다. (' + e.message + ')'); }
+            catch (e) { return fail('가입 정보를 확인하지 못했어요. 잠시 후 다시 시도해 주세요. (' + e.message + ')'); }
             if (staff && roleOk(staff.role)) {
                 /* [신규] 사장 표시 — 첫 등록자(사장님)에게만 붙는다. 사장은 아무도 취소·강등할 수 없고,
                    가게 권한을 주고 빼는 것도 사장만 한다. 예전에 먼저 등록한 사장님 칸에는 여기서 한 번 붙여 준다
@@ -943,7 +965,7 @@
                 return;
             }
             if (staff) {
-                return show(`<div class="sg-sub">${esc(staff.name || user.displayName || '')}님은 <b>배달기사</b>로 허락되어 있어 ${APP_NAME}는 열 수 없습니다.<br>필요하면 사장님께 가게 권한을 부탁해 주세요.</div>
+                return show(`<div class="sg-sub">${esc(staff.name || user.displayName || '')}님 계정은 ${APP_NAME} 앱을 쓸 권한이 없어요.<br>관리자에게 문의해 주세요.</div>
                     <button class="sg-btn sg-ghost" onclick="gStaffSignOut(true)">다른 계정으로 로그인</button>`);
             }
             let req = null;
@@ -958,19 +980,19 @@
 
         // ── 2) 사용 신청 ──
         function applyStep(user, firstPerson) {
-            show(`<div class="sg-sub">${firstPerson ? '아직 가게 사람이 없습니다. 이 계정을 <b>첫 가게 사람(사장님)</b>으로 등록합니다.' : '처음 쓰는 계정입니다. 사용을 신청해 주세요.'}</div>
-                <div class="sg-info"><span>이름</span>${esc(user.displayName || '')}<br><span>구글</span>${esc(user.email || '')}<br><span>기기</span>${esc(deviceLabel())}</div>
-                <div class="sg-label">① 휴대폰 번호를 적어 주세요 <span class="sg-req">필수</span></div>
-                <input class="sg-input" id="sg-phone" type="tel" inputmode="numeric" autocomplete="tel" placeholder="숫자만 · 예) 01012345678" maxlength="13">
-                <div class="sg-label">② 개인정보 동의 <span class="sg-req">필수</span></div>
+            show(`<div class="sg-sub">${firstPerson ? '<b class="sg-ttl">관리자 등록</b>아직 등록된 관리자가 없어요. 이 계정을 <b>첫 관리자(사장님)</b>로 등록할게요.' : '<b class="sg-ttl">회원가입</b>처음 오셨네요. 아래 정보를 입력하고 가입을 신청해 주세요.'}</div>
+                <div class="sg-info"><span>이름</span>${esc(user.displayName || '')}<br><span>이메일</span>${esc(user.email || '')}<br><span>기기</span>${esc(deviceLabel())}</div>
+                <div class="sg-label">① 휴대폰 번호 <span class="sg-req">필수</span></div>
+                <input class="sg-input" id="sg-phone" type="tel" inputmode="numeric" autocomplete="tel" placeholder="'-' 없이 숫자만 (예: 01012345678)" maxlength="13">
+                <div class="sg-label">② 개인정보 수집·이용 동의 <span class="sg-req">필수</span></div>
                 <label class="sg-agree" id="sg-agree" style="margin-top:0;"><input type="checkbox" id="sg-ok">
                     <span class="sg-check">✓</span>
                     <span><span class="sg-agree-title">[필수] 개인정보 수집·이용에 동의합니다</span>
                     항목: 이름, 구글 이메일, 휴대폰 번호, 기기 종류<br>
-                    목적: 모켓 가게 프로그램 사용 권한 확인·관리, 업무 연락<br>
-                    보관: 사용 권한을 취소하면 바로 삭제</span></label>
-                <button class="sg-btn sg-main" id="sg-apply" disabled>${firstPerson ? '첫 가게 사람으로 등록' : '사용 신청'}</button>
-                <div class="sg-hint" id="sg-hint">휴대폰 번호를 적고 위 동의 칸을 눌러 주세요</div>
+                    목적: 앱 사용 권한 확인·관리, 업무 연락<br>
+                    보관: 탈퇴하거나 권한이 해제되면 바로 삭제</span></label>
+                <button class="sg-btn sg-main" id="sg-apply" disabled>${firstPerson ? '관리자로 등록' : '가입 신청'}</button>
+                <div class="sg-hint" id="sg-hint">휴대폰 번호를 입력하고 개인정보 이용에 동의해 주세요</div>
                 <button class="sg-btn sg-ghost" onclick="gStaffSignOut(true)">다른 계정으로 로그인</button>
                 <div class="sg-err" id="sg-err"></div>`);
             const phoneEl = $('sg-phone'), ok = $('sg-ok'), btn = $('sg-apply');
@@ -981,7 +1003,7 @@
                 $('sg-agree').classList.toggle('on', ok.checked);
                 phoneEl.classList.toggle('ok', phoneOk);
                 const hint = $('sg-hint');
-                if (hint) hint.innerText = !phoneOk ? '휴대폰 번호를 010부터 끝까지 적어 주세요' : !ok.checked ? '위 동의 칸을 눌러 체크해 주세요' : '';
+                if (hint) hint.innerText = !phoneOk ? '휴대폰 번호를 정확히 입력해 주세요' : !ok.checked ? '개인정보 수집·이용에 동의해 주세요' : '';
             };
             phoneEl.oninput = paint; ok.onchange = paint;
             setTimeout(() => phoneEl.focus(), 50);   // 번호 칸부터 쓰게
@@ -1001,7 +1023,7 @@
                     waiting(body);
                 } catch (e) {
                     paint();
-                    err('신청하지 못했습니다. (' + e.message + ')');
+                    err('가입 신청에 실패했어요. 잠시 후 다시 시도해 주세요. (' + e.message + ')');
                 }
             };
         }
@@ -1009,9 +1031,9 @@
         // ── 3) 허락 기다리기 ──
         let poll = null;
         function waiting(req) {
-            show(`<div class="sg-sub">사용 신청을 보냈습니다. 사장님께 아래 <b>확인코드</b>를 알려 주세요.<br>허락되면 이 화면이 저절로 열립니다.</div>
+            show(`<div class="sg-sub"><b class="sg-ttl">가입 신청 완료</b>관리자에게 아래 <b>확인 코드</b>를 알려 주세요.<br>승인되면 앱이 자동으로 열려요.</div>
                 <div class="sg-code">${esc(codeText(req.code || ''))}</div>
-                <div class="sg-info" style="margin-top:10px;"><span>이름</span>${esc(req.name)}<br><span>구글</span>${esc(req.email)}<br><span>전화번호</span>${esc(fmtPhone(req.phone))}</div>
+                <div class="sg-info" style="margin-top:10px;"><span>이름</span>${esc(req.name)}<br><span>이메일</span>${esc(req.email)}<br><span>휴대폰</span>${esc(fmtPhone(req.phone))}</div>
                 <button class="sg-btn sg-ghost" id="sg-cancel">신청 취소</button>`);
             $('sg-cancel').onclick = async () => {
                 try { await db(`staff_requests/${auth.currentUser.uid}.json`, { method: 'DELETE' }); } catch (e) { }
@@ -1042,7 +1064,7 @@
     <!-- 로더 오버레이 -->
     <div class="loader-overlay" id="loader">
         <div class="spinner"></div>
-        <div class="loader-text" id="loader-text">처리 중입니다...</div>
+        <div class="loader-text" id="loader-text">처리 중이에요...</div>
     </div>
 
     <!-- 토스트 메시지 -->
@@ -1055,7 +1077,7 @@
          · 검색칸은 돋보기를 누를 때만 펼친다 -->
     <div class="header">
         <div style="display:flex; flex-direction:column; gap:2px; min-width:0;">
-            <h1>MOKET 배달배송</h1>
+            <h1>MOKET 배달</h1>
             <div class="sync-status" onclick="loadData(true)" style="cursor: pointer;" title="새로고침">
                 <span class="sync-dot"></span>
                 <span id="sync-time-text">동기화 중...</span>
@@ -1935,7 +1957,7 @@
         // DB에서 데이터 로드 — 앱을 열 때 1회, 그 뒤로는 '🔄 갱신' 버튼을 누를 때만 부른다.
         //  (화면 켜짐·앱 복귀마다 자동으로 받던 것을 없앴으므로 시간 제한도 두지 않는다)
         async function loadData(isManualRefresh = false) {
-            showLoader("데이터를 동기화하고 있습니다...");
+            showLoader("주문을 불러오는 중이에요...");
 
             const syncTimeTextEl = document.getElementById('sync-time-text');
             const syncDotEl = document.querySelector('.sync-dot');
@@ -1998,7 +2020,7 @@
                 if (syncDotEl) syncDotEl.style.backgroundColor = "var(--primary)";
 
                 if (isManualRefresh) {
-                    showToast("최신 주문 데이터가 동기화되었습니다.");
+                    showToast("최신 주문을 불러왔어요.");
                     // [수정] 갱신해도 보고 있던 날짜·아파트·동을 그대로 둔다.
                     //  예전에는 여기서 셋 다 지워 오늘·전체로 되돌렸는데,
                     //  배달 도중 갱신을 누르면 보던 자리를 잃어 매번 다시 찾아 들어가야 했다.
@@ -2013,7 +2035,7 @@
                 if (pwdLoadedFresh) gAutoFillEntrancePwd().catch(e => console.warn('비번 자동 채우기 실패:', e));
             } catch (e) {
                 console.error(e);
-                showToast("데이터를 로드하지 못했습니다.");
+                showToast("주문을 불러오지 못했어요. 잠시 후 다시 시도해 주세요.");
                 if (syncTimeTextEl) syncTimeTextEl.innerText = "동기화 실패";
                 if (syncDotEl) syncDotEl.style.backgroundColor = "var(--red)";
             } finally {
@@ -2222,7 +2244,7 @@
             });
 
             if (sortedMonthKeys.length === 0) {
-                dateContainer.innerHTML = '<div style="font-weight:700; color:var(--text-sub); padding:10px;">배달 예약 정보가 없습니다.</div>';
+                dateContainer.innerHTML = '<div style="font-weight:700; color:var(--text-sub); padding:10px;">배달 예약 정보가 없어요.</div>';
                 return;
             }
 
@@ -2591,9 +2613,9 @@
                 return a.localeCompare(b);
             });
             if (apartments.length === 0) {
-                aptContainer.innerHTML = '<div style="font-size:13px; color:var(--text-sub); font-weight:700; padding:10px;">배달 건이 없습니다.</div>';
+                aptContainer.innerHTML = '<div style="font-size:13px; color:var(--text-sub); font-weight:700; padding:10px;">배달 건이 없어요.</div>';
                 document.getElementById('dong-section').style.display = 'none';
-                document.getElementById('order-list').innerHTML = `<div style="text-align:center; padding:50px; font-weight:800; color:var(--text-sub);">${gIsStore() ? '조건에 일치하는 배달 주문이 없습니다.' : '배정된 배달이 없습니다.'}</div>`;   // [수정 2026-10-27] 기사는 배정된 것만 보인다
+                document.getElementById('order-list').innerHTML = `<div style="text-align:center; padding:50px; font-weight:800; color:var(--text-sub);">${gIsStore() ? '조건에 맞는 배달 주문이 없어요.' : '배정된 배달이 없어요.'}</div>`;   // [수정 2026-10-27] 기사는 배정된 것만 보인다
                 return;
             }
 
@@ -2758,7 +2780,7 @@
             if (!n) return 0;
             try { localStorage.setItem('moket_entrance_passwords_cache', JSON.stringify(entrancePasswords)); } catch (e) { }
             renderFilteredData();
-            showToast(`공동현관 비번 ${n}곳을 손님이 적은 값으로 채웠습니다.`);
+            showToast(`공동현관 비번 ${n}곳을 손님이 적은 값으로 채웠어요.`);
             return n;
         }
 
@@ -2840,7 +2862,7 @@
                 ? `<select id="set-view-pick" aria-label="볼 기사">${riders.map(s => `<option value="${encAttr(s.uid)}">${gEsc(s.ready ? s.name : (gNameOnly(s.name) || s.name))}</option>`).join('')}</select>
                    <button type="button" class="go" onclick="gViewSwitch(document.getElementById('set-view-pick').value)">보기</button>
                    <button type="button" onclick="gViewSwitchRender(false)">취소</button>`
-                : `<span>등록된 기사가 없습니다.</span><button type="button" onclick="gViewSwitchRender(false)">닫기</button>`;
+                : `<span>등록된 기사가 없어요.</span><button type="button" onclick="gViewSwitchRender(false)">닫기</button>`;
         }
         // uidEnc 가 비었으면 관리자로 돌아온다
         function gViewSwitch(uidEnc) {
@@ -3147,7 +3169,7 @@
             const ppl = asgPeople().filter(s => D.shift[s.uid]);
             if (!ppl.length) { showToast('위 출근 단추에서 사람을 먼저 골라 주세요.'); return; }
             const houses = asgDayHouses(p).filter(x => !x.done);
-            if (!houses.length) { showToast('나눌 배달이 없습니다.'); return; }
+            if (!houses.length) { showToast('나눌 배달이 없어요.'); return; }
             const byApt = {};
             houses.forEach(x => (byApt[x.apt] = byApt[x.apt] || []).push(x));
             const apts = Object.keys(byApt).sort((a, b) => {
@@ -3209,7 +3231,7 @@
             const favs = hit.filter(s => asgFav[s.uid]), rest = hit.filter(s => !asgFav[s.uid]);
             const n = all.filter(s => D.shift[s.uid]).length;
             document.getElementById('asg-fav-list').innerHTML = !hit.length
-                ? `<div class="pay-empty">${q ? `'${gEsc(q)}' 이름이 없습니다.` : '직원 목록이 없습니다.'}</div>`
+                ? `<div class="pay-empty">${q ? `'${gEsc(q)}' 이름이 없어요.` : '직원 목록이 없어요.'}</div>`
                 : `${favs.length ? `<div class="asg-fav-sec">★ 즐겨찾기</div>${favs.map(row).join('')}` : (q ? '' : '<div class="asg-fav-hint">자주 나오는 사람은 오른쪽 ☆ 를 눌러 두면 맨 위에 모여요.</div>')}
                    ${rest.length ? `<div class="asg-fav-sec">${favs.length ? '나머지' : '전체'}</div>${rest.map(row).join('')}` : ''}`;
             document.getElementById('asg-fav-done').textContent = `완료 · 출근 ${n}명`;
@@ -3236,7 +3258,7 @@
                 console.warn(e);
                 if (was) asgFav[uid] = true; else delete asgFav[uid];
                 asgShiftRender();
-                showToast('⚠️ 즐겨찾기를 저장하지 못했습니다.');
+                showToast('⚠️ 즐겨찾기를 저장하지 못했어요.');
             }
         }
         /* [신규 2026-10-27] 초기화 — 그날 모든 집의 담당만 지운다 (미배정으로). 출근 칩과 할증(무게)은 그대로 (사장님 정함).
@@ -3245,8 +3267,8 @@
             const p = asgCurParts(); if (!p) return;
             const D = asgDraft(p);
             const n = Object.values(D.h).filter(a => a && a.rider).length;
-            if (!n) { showToast('지울 담당이 없습니다.'); return; }
-            if (!(await gAskBox(`${p.label} 담당 ${n}집을 모두 미배정으로 바꿀까요?\n(출근·할증은 그대로, 저장을 눌러야 반영됩니다)`, '초기화'))) return;
+            if (!n) { showToast('지울 담당이 없어요.'); return; }
+            if (!(await gAskBox(`${p.label} 담당 ${n}집을 모두 미배정으로 바꿀까요?\n(출근·할증은 그대로, 저장을 눌러야 반영돼요)`, '초기화'))) return;
             Object.keys(D.h).forEach(h => {
                 const cur = Object.assign({}, D.h[h]);
                 delete cur.rider; delete cur.riderName;
@@ -3296,7 +3318,7 @@
                 showToast(`${p.label} 배정 저장 — 기사 화면에 바로 보여요.`);
             } catch (e) {
                 console.warn(e);
-                showToast('⚠️ 배정을 저장하지 못했습니다.' + (asgFailed[p.month] ? ' (Firebase 규칙 게시 전이면 막혀 있습니다)' : ''));
+                showToast('⚠️ 배정을 저장하지 못했어요.' + (asgFailed[p.month] ? ' (Firebase 규칙 게시 전이면 막혀 있어요)' : ''));
             } finally { hideLoader(); }
             renderFilteredData();
         }
@@ -3366,7 +3388,7 @@
                     <button type="button" class="go" onclick="asgSave()"${asgDirty[p.key] ? ' title="저장 안 됨"' : ''}>저장${asgDirty[p.key] ? '<i class="asg-dot" aria-label="저장 안 됨"></i>' : ''}</button>
                     <button type="button" onclick="asgClose()">끝내기</button>
                 </div>
-                ${asgFailed[p.month] ? '<div class="asg-msg warn">저장된 배정을 못 불러왔습니다 (Firebase 규칙 게시 전이면 막혀 있습니다).</div>' : ''}`;
+                ${asgFailed[p.month] ? '<div class="asg-msg warn">저장된 배정을 못 불러왔어요 (Firebase 규칙 게시 전이면 막혀 있어요).</div>' : ''}`;
         }
         /* [수정 2026-10-27] 아파트 단추 둘째 줄 — 배정 중이면 (미배정 집 / 전체 집)을 주황 숫자로 (사장님 요청 — '미배정 4' 글자 대신).
            배달이 끝난 집은 미배정으로 세지 않는다. '전체' 단추도 같은 셈. */
@@ -3439,7 +3461,7 @@
                         <span class="nm">${gEsc(a)}${today.has(a) ? '<em>오늘</em>' : ''}</span>
                         <label class="pay-rate"><input type="text" inputmode="numeric" placeholder="0" aria-label="${gEsc(a)} 할증(거리)" value="${v ? v.toLocaleString() : ''}" ${num} onchange="asgDistAptFrom(this, '${encAttr(a)}')"></label>
                     </div>`;
-                }).join('') || '<div class="pay-empty">아파트가 없습니다.</div>'}</div>`;
+                }).join('') || '<div class="pay-empty">아파트가 없어요.</div>'}</div>`;
             document.getElementById('asg-sur-modal').style.display = 'flex';
         }
         function asgSurClose() { document.getElementById('asg-sur-modal').style.display = 'none'; renderFilteredData(); }
@@ -3459,7 +3481,7 @@
             } catch (e) {
                 console.warn(e);
                 if (was) asgDist[k] = was; else delete asgDist[k];
-                showToast('⚠️ 할증(거리)를 저장하지 못했습니다.');
+                showToast('⚠️ 할증(거리)를 저장하지 못했어요.');
             }
             renderFilteredData();   // 기본 단가는 체크할 때만 쓰여 그날 배정이 바뀌지는 않는다
         }
@@ -3498,7 +3520,7 @@
         // 카드 아래 — 배정 화면이면 담당 고르기 + 할증 칸 (전화·완료 단추 대신)
         function asgCardFootHtml(rep) {
             const p = asgCurParts(), parts = gDelivParts(rep), house = gPartKeyOf(rep);
-            if (!p || !parts || parts.ymd !== p.ymd || !house) return `<div class="asg-foot"><span class="asg-msg">이 카드는 다른 날 배달입니다.</span></div>`;
+            if (!p || !parts || parts.ymd !== p.ymd || !house) return `<div class="asg-foot"><span class="asg-msg">이 카드는 다른 날 배달이에요.</span></div>`;
             const D = asgDraft(p), a = D.h[house] || {};
             const ppl = asgPeople().filter(s => D.shift[s.uid] || s.uid === a.rider);
             const who = ppl.length
@@ -3656,7 +3678,7 @@
                 payRender();
             } catch (e) {
                 console.warn('정산 불러오기 실패:', e);
-                body.innerHTML = `<div class="pay-empty" style="color:var(--red); line-height:1.6;">불러오지 못했습니다.<br><span style="color:#94a3b8; font-weight:700;">Firebase 규칙을 게시하기 전이면 막혀 있습니다.</span></div>`;
+                body.innerHTML = `<div class="pay-empty" style="color:var(--red); line-height:1.6;">불러오지 못했어요.<br><span style="color:#94a3b8; font-weight:700;">Firebase 규칙을 게시하기 전이면 막혀 있어요.</span></div>`;
             } finally {
                 if (seq === _payLoadSeq) body.classList.remove('gload');
             }
@@ -3807,7 +3829,7 @@
                 <div><span>총액</span><b>${payWon(total)}</b></div>
                 <div><span>미지급</span><b class="${due ? 'due' : ''}">${payWon(due)}</b></div>
                 ${payShowSurBrk ? `<div class="brk">${b.all ? [['w', '할증(날씨)'], ['m', '할증(무게)'], ['d', '할증(거리)']].map(([k, t]) =>
-                    `<p><span>${t}</span><em>${b[k].n}건</em><b>${b[k].a.toLocaleString()}원</b></p>`).join('') : '<p><span>이 달 할증이 없습니다.</span></p>'}</div>` : ''}`;
+                    `<p><span>${t}</span><em>${b[k].n}건</em><b>${b[k].a.toLocaleString()}원</b></p>`).join('') : '<p><span>이 달 할증이 없어요.</span></p>'}</div>` : ''}`;
         }
 
         function payRender() {
@@ -3826,7 +3848,7 @@
                 const action = c.left > 0
                     ? `<button type="button" class="pay-act go" onclick="payPayOpen('${uidAttr}')">${c.pay.list.length ? `지급<small>+${c.left}</small>` : '지급'}</button>`
                     : (last
-                        ? `<span class="pay-act done" style="cursor:default;" title="지급일은 건수를 눌러 펼치면 보입니다">완료</span>`
+                        ? `<span class="pay-act done" style="cursor:default;" title="지급일은 건수를 눌러 펼치면 보여요">완료</span>`
                         : `<span class="pay-act" style="cursor:default;"></span>`);
                 return `
                     <div class="pay-item${open ? ' open' : ''}">
@@ -3837,7 +3859,7 @@
                             <label class="pay-rate">
                                 <input type="text" inputmode="numeric" id="pay-rate-${uidAttr}" data-pay-uid="${uidAttr}" value="${c.rate ? c.rate.toLocaleString() : ''}" placeholder="0" aria-label="단가"
                                     oninput="payRateInput(this)" onchange="paySaveRate('${uidAttr}', this.value)"
-                                    ${locked ? 'disabled title="이 달 몫을 다 지급해서 단가를 바꿀 일이 없습니다. 지급 표시를 지우면 고칠 수 있습니다."' : ''}>
+                                    ${locked ? 'disabled title="이 달 몫을 다 지급해서 단가를 바꿀 일이 없어요. 지급 표시를 지우면 고칠 수 있어요."' : ''}>
                             </label>
                             <span class="pay-cnt"><b>${r.count}</b>${c.pay.list.length && c.left > 0 ? `<em>+${c.left}</em>` : ''}</span>
                             <span class="amt${c.total ? '' : ' zero'}" data-pay-amt="${uidAttr}">${c.total.toLocaleString()}${(() => { const s = paySurBreak(payDeliveriesOf(r)).all; return s ? `<small class="pay-sur-n">할증 ${s.toLocaleString()}</small>` : ''; })()}</span><!-- [수정 2026-10-27] 금액 밑에 이 달 할증 합 -->
@@ -3852,7 +3874,7 @@
                 ${payMonthCalHtml()}
                 <div class="pay-list">
                     <div class="pay-head"><span>기사</span><span class="c">단가</span><span class="c">건수</span><span class="r">금액(원)</span><span class="c">지급</span></div>
-                    ${rows || `<div class="pay-empty" style="padding:18px 0;">${payMonthLabel(month)} 배달 기록이 없습니다.</div>`}
+                    ${rows || `<div class="pay-empty" style="padding:18px 0;">${payMonthLabel(month)} 배달 기록이 없어요.</div>`}
                 </div>`;
             payUpdateSummary();
         }
@@ -3958,7 +3980,7 @@
                 }
                 showToast(`${r.name || ''} 단가 ${rate.toLocaleString()}원${baseNote}`);
                 payRender();
-            } catch (e) { console.warn(e); showToast('⚠️ 단가를 저장하지 못했습니다.'); }
+            } catch (e) { console.warn(e); showToast('⚠️ 단가를 저장하지 못했어요.'); }
         }
 
         /* [신규 2026-10-27] 지급 창 — '지급'을 누르면 그 줄 바로 아래에 기간(시작일~끝일)을 고르는 칸이 열린다 (사장님 요청).
@@ -4036,7 +4058,7 @@
             const c = payCalc(r, null, rg[0], rg[1]);
             if (go) go.disabled = !c.left || !c.rate;
             el.innerHTML = !c.left
-                ? '<span class="warn">이 기간에는 안 준 배달이 없습니다.</span>'
+                ? '<span class="warn">이 기간에는 안 준 배달이 없어요.</span>'
                 : !c.rate
                     ? '<span class="warn">단가를 먼저 적어 주세요.</span>'
                     // [수정 2026-10-27] 할증을 종류별 줄로 (날씨 · 무게 · 거리)
@@ -4055,7 +4077,7 @@
             if (!rg) { showToast('날짜를 골라 주세요.'); return; }
             const [from, to] = rg;
             const c = payCalc(r, null, from, to);
-            if (!c.left) { showToast('이 기간에는 안 준 배달이 없습니다.'); return; }
+            if (!c.left) { showToast('이 기간에는 안 준 배달이 없어요.'); return; }
             if (!c.rate) { showToast('단가를 먼저 적어 주세요.'); return; }
             const mm = parseInt(month.slice(5));
             const rangeTxt = from === to ? `${mm}/${parseInt(from)}` : `${mm}/${parseInt(from)}~${mm}/${parseInt(to)}`;
@@ -4077,7 +4099,7 @@
                 payPayPick = '';
                 showToast(`${rangeTxt} 지급`);
                 payRender();
-            } catch (e) { console.warn(e); showToast('⚠️ 지급 표시를 남기지 못했습니다.'); }
+            } catch (e) { console.warn(e); showToast('⚠️ 지급 표시를 남기지 못했어요.'); }
         }
         // 지급 한 번을 지운다 (잘못 눌렀을 때)
         async function payUnpay(uidEnc, idEnc) {
@@ -4092,7 +4114,7 @@
                 delete paySaved[uid].payments[id];
                 showToast('지급 표시 지움');
                 payRender();
-            } catch (e) { console.warn(e); showToast('⚠️ 지우지 못했습니다.'); }
+            } catch (e) { console.warn(e); showToast('⚠️ 지우지 못했어요.'); }
         }
 
         // 배달기사가 보는 화면 — 본인 단가 · 건수 · 금액 · 지급 기록 · 날짜별 내역. 고치기 없음.
@@ -4348,7 +4370,7 @@
                 paySurPick = '';
                 showToast(amt ? `${parseInt(month.slice(5))}/${parseInt(dd)} 할증(날씨) ${amt.toLocaleString()}원` : '할증(날씨) 삭제');
                 payRender();
-            } catch (e) { console.warn(e); showToast('⚠️ 할증을 저장하지 못했습니다.'); }
+            } catch (e) { console.warn(e); showToast('⚠️ 할증을 저장하지 못했어요.'); }
         }
         /* [신규] 한 사람의 날짜마다 금액 = 건마다 (단가 + 그날 할증).
            지급한 몫은 지급할 때의 단가로 — 날짜 순으로 앞에서부터 지급 기록 차례대로 덮는다. 나머지는 지금 단가. */
@@ -4377,7 +4399,7 @@
         let dlogMonthCache = {};         // { 'YYYY-MM': { DD: { 집키: 기록 } } }
         function dlogYmd(d) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }
         function openDlog() {
-            if (!payIsStore()) { showToast('가게 계정만 볼 수 있습니다.'); return; }
+            if (!payIsStore()) { showToast('가게 계정만 볼 수 있어요.'); return; }
             closeSettings();
             const inp = document.getElementById('dlog-date');
             if (!inp.value) inp.value = dlogYmd(new Date());
@@ -4438,7 +4460,7 @@
                 dlogRender();
             } catch (e) {
                 console.warn('배달 기록 불러오기 실패:', e);
-                body.innerHTML = `<div class="pay-sur">${dlogNavHtml(month)}</div><div class="pay-empty" style="color:var(--red); line-height:1.6;">불러오지 못했습니다.<br><span style="color:#94a3b8; font-weight:700;">Firebase 규칙을 게시하기 전이면 막혀 있습니다.</span></div>`;
+                body.innerHTML = `<div class="pay-sur">${dlogNavHtml(month)}</div><div class="pay-empty" style="color:var(--red); line-height:1.6;">불러오지 못했어요.<br><span style="color:#94a3b8; font-weight:700;">Firebase 규칙을 게시하기 전이면 막혀 있어요.</span></div>`;
             }
         }
         function dlogPick(nameEnc) { dlogRider = decAttr(nameEnc); dlogRender(); }
@@ -4521,7 +4543,7 @@
                 showToast(amt ? `할증(${label}) ${amt.toLocaleString()}원` : `할증(${label}) 뺌`);
                 dlogRender();
                 if (dlogSurPick === house) setTimeout(() => { const el = document.getElementById('dlog-sur-a'); if (el) el.focus(); }, 0);
-            } catch (e) { console.warn(e); showToast('⚠️ 할증을 저장하지 못했습니다. (Firebase 규칙 게시 전이면 막혀 있습니다)'); }
+            } catch (e) { console.warn(e); showToast('⚠️ 할증을 저장하지 못했어요. (Firebase 규칙 게시 전이면 막혀 있어요)'); }
         }
 
         /* [신규] 건수만 추가 — 앱으로 완료를 못 누른 배달을 나중에 정산에 넣는다 (목록 카드는 안 생긴다).
@@ -4578,7 +4600,7 @@
                 dlogAddOpen = false;
                 showToast(`${who.name} ${n}건 추가`);
                 dlogRender();
-            } catch (e) { console.warn(e); showToast('⚠️ 추가하지 못했습니다.'); }
+            } catch (e) { console.warn(e); showToast('⚠️ 추가하지 못했어요.'); }
             finally { hideLoader(); }
         }
         /* [수정] 수기 칸만 지울 수 있어서, 잘못 배달완료를 누른 건은 건수를 줄일 방법이 없었다.
@@ -4591,7 +4613,7 @@
             const place = [rec.apt && rec.apt !== '기타' ? `[${rec.apt}]` : '', rec.detail || ''].join(' ').trim();
             const msg = rec.manual
                 ? `${rec.riderName || ''} 수기 1건을 지울까요?`
-                : `이 배달 기록을 지울까요?\n${rec.riderName || ''} · ${place || '-'}${rec.name ? ` · ${rec.name}` : ''}\n\n정산 건수에서 1건 빠집니다.\n(주문의 배달완료 표시는 그대로 남습니다)`;
+                : `이 배달 기록을 지울까요?\n${rec.riderName || ''} · ${place || '-'}${rec.name ? ` · ${rec.name}` : ''}\n\n정산 건수에서 1건 빠져요.\n(주문의 배달완료 표시는 그대로 남아요)`;
             if (!confirm(msg)) return;
             const ymd = document.getElementById('dlog-date').value;
             const [y, m, d] = ymd.split('-');
@@ -4600,9 +4622,9 @@
                 if (!r.ok) throw new Error('서버 응답 ' + r.status);
                 delete dlogData[house];
                 delete deliveryRecordCache[`${y}-${m}/${d}`];
-                showToast('지웠습니다.');
+                showToast('지웠어요.');
                 dlogRender();
-            } catch (e) { console.warn(e); showToast('⚠️ 지우지 못했습니다.'); }
+            } catch (e) { console.warn(e); showToast('⚠️ 지우지 못했어요.'); }
         }
         /* [신규] 배달 기록에서 그 집 사진 보기 (가게만) — 사진이 남아 있을 때만 '사진' 단추가 뜬다.
            사진은 delivery_photos/집키/주문키 에 있다. 집마다 주문키 목록만(shallow) 받아 남아 있는지 본다. */
@@ -4638,15 +4660,15 @@
         async function dlogPhoto(houseEnc) {
             const rec = dlogData[decAttr(houseEnc)];
             const hit = rec && dlogPhotoKey(Object.assign({ house: decAttr(houseEnc) }, rec));
-            if (!hit) { showToast('남아 있는 사진이 없습니다.'); return; }
+            if (!hit) { showToast('남아 있는 사진이 없어요.'); return; }
             showLoader('사진 가져오는 중...');
             try {
                 const res = await fetch(`${FIREBASE_DB_URL}delivery_photos/${encodeURIComponent(hit.pk)}/${encodeURIComponent(hit.key)}.json`);
                 const data = res.ok ? await res.json() : null;
-                if (!data || !data.photo) { showToast('남아 있는 사진이 없습니다.'); return; }
+                if (!data || !data.photo) { showToast('남아 있는 사진이 없어요.'); return; }
                 document.getElementById('photo-modal').style.zIndex = '10060';   // 배달 기록 창 위에 뜨게
                 viewDeliveryPhoto(hit.key, data.photo);
-            } catch (e) { console.warn(e); showToast('⚠️ 사진을 가져오지 못했습니다.'); }
+            } catch (e) { console.warn(e); showToast('⚠️ 사진을 가져오지 못했어요.'); }
             finally { hideLoader(); }
         }
         function dlogAddHtml() {
@@ -4708,7 +4730,7 @@
                 <div class="dlog-day">${parseInt(month.slice(5))}/${parseInt(dd)} (${W[new Date(+ymd.slice(0, 4), +month.slice(5) - 1, +dd).getDay()]})</div>`;
             const recs = Object.entries(dlogData).map(([h, r]) => Object.assign({ house: h }, r || {}))
                 .sort((a, b) => (a.at || 0) - (b.at || 0));
-            if (!recs.length) { body.innerHTML = `${head}<div class="pay-empty" style="padding:14px 0;">이날 배달 기록이 없습니다.</div>${dlogAddHtml()}`; return; }
+            if (!recs.length) { body.innerHTML = `${head}<div class="pay-empty" style="padding:14px 0;">이날 배달 기록이 없어요.</div>${dlogAddHtml()}`; return; }
             const counts = {};
             recs.forEach(r => { const k = r.riderName || '이름 없음'; counts[k] = (counts[k] || 0) + 1; });
             const chip = (label, val, n) => `<button type="button" class="dlog-chip${dlogRider === val ? ' on' : ''}" onclick="dlogPick('${encAttr(val)}')">${gEsc(label)} ${n}</button>`;
@@ -4770,7 +4792,7 @@
         // ── 아파트 순서 고치기
         let aptOrderEdit = [];
         function openAptOrder() {
-            if (!gIsStore()) { showToast('아파트 순서는 가게에서만 고칠 수 있습니다.'); return; }   // [신규]
+            if (!gIsStore()) { showToast('아파트 순서는 가게에서만 고칠 수 있어요.'); return; }   // [신규]
             const list = [];
             const add = n => { n = String(n || '').trim(); if (n && n !== '기타' && !list.includes(n)) list.push(n); };
             APT_ORDER.forEach(add);
@@ -4790,7 +4812,7 @@
             const box = document.getElementById('apt-order-body');
             if (!box) return;
             if (!aptOrderEdit.length) {
-                box.innerHTML = `<div style="padding:26px 0; text-align:center; color:#94a3b8; font-size:13px; font-weight:700;">순서를 정할 아파트가 없습니다.</div>`;
+                box.innerHTML = `<div style="padding:26px 0; text-align:center; color:#94a3b8; font-size:13px; font-weight:700;">순서를 정할 아파트가 없어요.</div>`;
                 return;
             }
             box.innerHTML = aptOrderEdit.map((name, i) => {
@@ -4846,7 +4868,7 @@
 
         async function saveAptOrder() {
             // [신규] 배달기사는 고칠 수 있는 게 없다 — 아파트 순서도 가게 계정만
-            if (!gIsStore()) { showToast('아파트 순서는 가게에서만 고칠 수 있습니다.'); return; }
+            if (!gIsStore()) { showToast('아파트 순서는 가게에서만 고칠 수 있어요.'); return; }
             const btn = document.getElementById('apt-order-save');
             if (btn) { btn.disabled = true; btn.innerText = '저장 중...'; }
             APT_ORDER = aptOrderEdit.slice();
@@ -4859,7 +4881,7 @@
                 ok = res.ok;
             } catch (e) { ok = false; }
             if (btn) { btn.disabled = false; btn.innerText = '저장'; }
-            showToast(ok ? '아파트 순서를 저장했습니다.' : '서버 저장에 실패했습니다. 이 기기에서만 바뀝니다.');
+            showToast(ok ? '아파트 순서를 저장했어요.' : '서버 저장에 실패했어요. 이 기기에서만 바뀌어요.');
             closeAptOrder();
             renderFilteredData();   // 바뀐 순서로 단추를 다시 그린다
         }
@@ -5044,7 +5066,7 @@
             const D = _pwdDraft; if (!D) return;
             const used = D.rows.filter(r => !r.del).map(gPwdRowHo).filter(h => h && !isNaN(h[0]) && !isNaN(h[1])).map(h => ({ from: h[0], to: h[1] }));
             const 빈자리 = gFreeHoRange(used);
-            if (!빈자리) { showToast('넣을 자리가 다 찼습니다.'); return; }
+            if (!빈자리) { showToast('넣을 자리가 다 찼어요.'); return; }
             D.rows.push({ key: '', from: 빈자리[0], to: 빈자리[1], a: '', b: '', pwd: '', oldPwd: '', del: false });
             renderPasswordFinder();
         }
@@ -5076,26 +5098,26 @@
                 if (h === null) { plan.push({ r, key: r.key, from: null, to: null }); continue; }
                 const [fn, tn] = h;
                 if (isNaN(fn) || isNaN(tn) || fn < 1 || tn > 99) { showToast('호수는 1~99 숫자로 적어 주세요.'); return; }
-                if (fn > tn) { showToast(`${fn}~${tn}호 — 앞 숫자가 뒤 숫자보다 큽니다.`); return; }
+                if (fn > tn) { showToast(`${fn}~${tn}호 — 앞 숫자가 뒤 숫자보다 커요.`); return; }
                 plan.push({ r, key: gSlotKey(D.dong, fn, tn), from: fn, to: tn });
             }
             // 호수가 겹치면 저장하지 않는다 (같은 칸 두 개면 한 비번이 덮여 사라진다)
             const ranged = plan.filter(p => p.from != null);
             for (let i = 0; i < ranged.length; i++) for (let j = i + 1; j < ranged.length; j++) {
                 const x = ranged[i], y = ranged[j];
-                if (x.from <= y.to && y.from <= x.to) { showToast(`${x.from}~${x.to}호와 ${y.from}~${y.to}호가 겹칩니다. 호수를 고쳐 주세요.`); return; }
+                if (x.from <= y.to && y.from <= x.to) { showToast(`${x.from}~${x.to}호와 ${y.from}~${y.to}호가 겹쳐요. 호수를 고쳐 주세요.`); return; }
             }
             const finalKeys = new Set(plan.map(p => p.key));
             const writes = plan.filter(p => !p.r.key || p.key !== p.r.key || gPwdRowPwd(p.r) !== String(p.r.oldPwd));
             const removes = D.rows.filter(r => r.key && !finalKeys.has(r.key)).map(r => r.key);
-            if (!writes.length && !removes.length) { _pwdEdit = false; _pwdDraft = null; renderPasswordFinder(); showToast('바뀐 것이 없습니다.'); return; }
+            if (!writes.length && !removes.length) { _pwdEdit = false; _pwdDraft = null; renderPasswordFinder(); showToast('바뀐 것이 없어요.'); return; }
             showLoader('저장 중...');
             try {
                 // 먼저 새 자리에 쓰고, 그다음 안 쓰는 옛 자리를 지운다 (서로 자리를 바꿔도 안 사라지게)
                 for (const p of writes) await savePwdSlot('', D.dong, p.from, p.to, gPwdRowPwd(p.r));
                 for (const k of removes) await deletePwdSlot(k);
                 _pwdEdit = false; _pwdDraft = null;
-                showToast('저장했습니다.');
+                showToast('저장했어요.');
             } catch (e) { showToast('저장 실패: ' + e.message); }
             /* [수정] 뒤에 깔린 배달 목록의 비번 카드도 함께 다시 그린다.
                고친 값은 이미 메모리와 저장소에 들어가 있으므로 목록만 다시 그리면 된다. */
@@ -5108,7 +5130,7 @@
         let _pwdEdit = false;
         // [수정] 비번 고치기는 가게 계정만 (배달기사는 보기만). 서버 규칙도 가게만 쓰게 막혀 있다.
         function togglePwdEdit(on) {
-            if (on && !gIsStore()) { showToast('비번은 가게에서만 고칠 수 있습니다.'); return; }
+            if (on && !gIsStore()) { showToast('비번은 가게에서만 고칠 수 있어요.'); return; }
             _pwdEdit = !!on; _pwdDraft = null; renderPasswordFinder();
         }
 
@@ -5145,7 +5167,7 @@
                              + `<span style="flex:0 0 auto; font-size:12px; font-weight:900; color:#4338ca;">공용</span>`
                              + `<span style="flex:1; min-width:0; font-size:19px; font-weight:900; color:#312e81; letter-spacing:1px; word-break:break-all;">${gEsc(com)}</span></div>` : '')
                         + (live.length === 0
-                            ? (com ? '' : `<div style="padding:34px 0; text-align:center; color:#94a3b8; font-size:13px; font-weight:700;">적어 둔 비번이 없습니다.</div>`)
+                            ? (com ? '' : `<div style="padding:34px 0; text-align:center; color:#94a3b8; font-size:13px; font-weight:700;">적어 둔 비번이 없어요.</div>`)
                             : `<div style="border:1.5px solid #fde68a; border-radius:12px; overflow:hidden; background:#fffdf7;">`
                               + live.map((s, i) => `
                                 <div style="display:flex; align-items:stretch; ${i ? 'border-top:1px solid #fde68a;' : ''}">
@@ -5182,7 +5204,7 @@
 
                 body.innerHTML =
                     (D.rows.length === 0
-                        ? `<div style="padding:24px 0; text-align:center; color:#94a3b8; font-size:13px; font-weight:700;">칸이 없습니다.</div>`
+                        ? `<div style="padding:24px 0; text-align:center; color:#94a3b8; font-size:13px; font-weight:700;">칸이 없어요.</div>`
                         : D.rows.map(rowHtml).join(''))
                     + `<button type="button" onclick="addPwdSlot()" style="width:100%; margin-top:12px; padding:12px; border:1.5px dashed #cbd5e1; background:#fff; color:#64748b; border-radius:10px; font-size:13px; font-weight:800; cursor:pointer;">＋ 호수 칸 추가</button>`
                     + `<div style="display:flex; gap:7px; margin-top:7px;">`
@@ -5200,7 +5222,7 @@
                     .filter(d => !q || d.toLowerCase().includes(q))
                     .sort((a, b) => (parseInt(a.replace(/\D/g, '')) || 9999) - (parseInt(b.replace(/\D/g, '')) || 9999) || a.localeCompare(b));
                 body.innerHTML = dongs.length === 0
-                    ? `<div style="padding:34px 0; text-align:center; color:#94a3b8; font-weight:700;">동이 없습니다.</div>`
+                    ? `<div style="padding:34px 0; text-align:center; color:#94a3b8; font-weight:700;">동이 없어요.</div>`
                     : dongs.map(d => {
                         const ok = has(_pwdView.apt, d);
                         return listRow(`pwdPickDong('${gEsc(d).replace(/'/g, "\\'")}')`, gEsc(d), ok ? '🚪' : '', !ok);
@@ -5218,7 +5240,7 @@
                     return a.localeCompare(b, 'ko');
                 });
             body.innerHTML = apts.length === 0
-                ? `<div style="padding:34px 0; text-align:center; color:#94a3b8; font-weight:700;">찾는 아파트가 없습니다.</div>`
+                ? `<div style="padding:34px 0; text-align:center; color:#94a3b8; font-weight:700;">찾는 아파트가 없어요.</div>`
                 : apts.map(a => {
                     const dongs = Object.keys(tree[a]);
                     const okCount = dongs.filter(d => has(a, d)).length;
@@ -5255,7 +5277,7 @@
 
             if (dongs.length === 0) {
                 document.getElementById('dong-section').style.display = 'none';
-                document.getElementById('order-list').innerHTML = '<div style="text-align:center; padding:50px; font-weight:800; color:var(--text-sub); font-size: 14px;">동 정보 파싱에 실패한 주문만 있거나 배달이 없습니다.</div>';
+                document.getElementById('order-list').innerHTML = '<div style="text-align:center; padding:50px; font-weight:800; color:var(--text-sub); font-size: 14px;">배달할 주문이 없어요.</div>';
                 return;
             }
 
@@ -5501,7 +5523,7 @@
                                     <span style="flex:1; min-width:0; display:flex; align-items:center; padding-left:17px; font-size:17px; font-weight:900; line-height:20px; color:#78350f; word-break:break-all; letter-spacing:0.5px;">${gEsc(gCommonPwdOf(activeApartment))}</span>
                                 </div>` : ''}
                         ${slots.length === 0
-                            ? (gCommonPwdOf(activeApartment) ? '' : `<div style="font-size:12.5px; font-weight:700; color:#b7a894;">적어 둔 비번이 없습니다.</div>`)
+                            ? (gCommonPwdOf(activeApartment) ? '' : `<div style="font-size:12.5px; font-weight:700; color:#b7a894;">적어 둔 비번이 없어요.</div>`)
                             : slots.map((s, i) => `
                                 <div style="display:flex; align-items:center; gap:0; min-height:40px; box-sizing:border-box; padding:9.5px 0; ${(i || gCommonPwdOf(activeApartment)) ? "border-top:1px solid #fde68a;" : ""}">
                                     <span style="flex:0 0 86px; display:flex; align-items:center; justify-content:center; font-size:17px; font-weight:800; line-height:20px; color:#a16207; white-space:nowrap; border-right:1px solid #fde68a; padding-right:14px;">${gEsc(gSlotLabel(s))}</span>
@@ -5690,7 +5712,7 @@
                             ${itemHtml}
                         </div>
                         <div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px; padding-top:8px; border-top:1.5px solid #e5e7eb; font-weight:900; font-size:14px;">
-                            <span>주문금액 총합</span>
+                            <span>주문 금액</span>
                             <span style="color:#ea580c;">${cardTotalAmount.toLocaleString()}원</span><!-- [수정 2026-10-24] 금액은 주황 (사장님 요청) -->
                         </div>
 
@@ -5744,7 +5766,7 @@
                     body: JSON.stringify(pwd)
                 });
                 if (!res.ok) throw new Error("Firebase 저장 실패");
-                showToast(`${is34 ? '3·4' : '1·2'} 라인 공동현관 비밀번호가 저장되었습니다.`);
+                showToast(`${is34 ? '3·4' : '1·2'} 라인 공동현관 비밀번호가 저장되었어요.`);
 
                 if (!entrancePasswords[activeApartment]) {
                     entrancePasswords[activeApartment] = {};
@@ -5752,7 +5774,7 @@
                 entrancePasswords[activeApartment][dongKeyName] = pwd;
             } catch (e) {
                 console.error(e);
-                showToast("저장에 실패했습니다.");
+                showToast("저장에 실패했어요.");
             } finally {
                 hideLoader();
             }
@@ -5974,7 +5996,7 @@
             return dlogYmd(new Date());
         }
         function openManual() {
-            if (!gIsStore()) { showToast('가게 계정만 넣을 수 있습니다.'); return; }
+            if (!gIsStore()) { showToast('가게 계정만 넣을 수 있어요.'); return; }
             closeSettings();
             ['man-phone', 'man-name', 'man-addr', 'man-detail', 'man-memo'].forEach(id => { document.getElementById(id).value = ''; });
             document.getElementById('man-item').value = '';
@@ -6035,7 +6057,7 @@
                 (digits.length >= 3 && c.phone.includes(digits))
                 || (!digits && String(c.name || '').replace(/\s+/g, '').includes(word))
             ).slice(0, 8);
-            if (!hits.length) { box.innerHTML = '<div class="none">찾는 손님이 없습니다</div>'; return; }
+            if (!hits.length) { box.innerHTML = '<div class="none">찾는 손님이 없어요</div>'; return; }
             box.innerHTML = hits.map(c => {
                 const apt = extractApartmentName(c.roadAddress || c.address);
                 const place = (apt && apt !== '기타') ? `[${apt}] ${c.addressDetail || ''}` : `${gShortRoadAddr(c.address || '')} ${c.addressDetail || ''}`;
@@ -6052,7 +6074,7 @@
             manualEntrance = c.entrance || '';
             document.getElementById('man-find').value = '';
             document.getElementById('man-find-list').innerHTML = '';
-            document.getElementById('man-hint').textContent = `${c.name || ''} 손님을 골랐습니다`;
+            document.getElementById('man-hint').textContent = `${c.name || ''} 손님을 골랐어요`;
             document.getElementById('man-item').focus();
         }
         /* [신규] 주소 검색 — 주문관리와 같은 다음 우편번호 창. 폰에서 새 창이 막히지 않게 이 창 안에 펼친다. */
@@ -6062,7 +6084,7 @@
                 const s = document.createElement('script');
                 s.src = 'https://t1.daumcdn.net/mapjsapi/bundle/postcode/prod/postcode.v2.js';
                 s.onload = () => resolve();
-                s.onerror = () => reject(new Error('주소 검색을 불러오지 못했습니다. 인터넷을 확인해 주세요.'));
+                s.onerror = () => reject(new Error('주소 검색을 불러오지 못했어요. 인터넷을 확인해 주세요.'));
                 document.head.appendChild(s);
             });
         }
@@ -6109,7 +6131,7 @@
             if (detail && addr.endsWith(detail)) addr = addr.slice(0, -detail.length).trim();
             fill('man-addr', addr);
             fill('man-detail', detail);
-            hint.textContent = `${hit.name || ''} 손님 주소를 채웠습니다`;
+            hint.textContent = `${hit.name || ''} 손님 주소를 채웠어요`;
         }
         async function manualSave() {
             if (!gIsStore()) return;
@@ -6146,10 +6168,10 @@
                 currentYear = `${y}년`; currentMonth = `${m}월`; currentDay = `${d}일`;
                 buildDateTabs();
                 closeManual();
-                showToast(`${m}/${d} 수기 배달을 넣었습니다.`);
+                showToast(`${m}/${d} 수기 배달을 넣었어요.`);
             } catch (e) {
                 console.warn(e);
-                showToast('⚠️ 넣지 못했습니다. (규칙 게시 전이면 막혀 있습니다)');
+                showToast('⚠️ 넣지 못했어요. (규칙 게시 전이면 막혀 있어요)');
             } finally { hideLoader(); }
         }
         /* 수기 배달 지우기 (가게만). 배달완료한 것이면 그 집·그날 배달 기록도 이 줄로만 된 것일 때 같이 지운다
@@ -6160,7 +6182,7 @@
             const row = rawOrders.find(o => o._manual && o.orderKey === key);
             if (!row) return;
             const done = row.status === '배달완료';
-            if (!confirm(`수기 배달을 지울까요?\n${row.name || ''} · ${row.item || ''}${done ? '\n\n배달완료한 건이라 정산 건수에서도 빠집니다.' : ''}`)) return;
+            if (!confirm(`수기 배달을 지울까요?\n${row.name || ''} · ${row.item || ''}${done ? '\n\n배달완료한 건이라 정산 건수에서도 빠져요.' : ''}`)) return;
             showLoader('지우는 중...');
             try {
                 const r = await fetch(`${FIREBASE_DB_URL}${MANUAL_NODE}/${encodeURIComponent(house)}/${encodeURIComponent(key)}.json`, { method: 'DELETE' });
@@ -6182,8 +6204,8 @@
                 try { localStorage.setItem('moket_manual_cache', JSON.stringify(manualDeliveries)); } catch (e) { }
                 gMergeManual();
                 buildDateTabs();
-                showToast('지웠습니다.');
-            } catch (e) { console.warn(e); showToast('⚠️ 지우지 못했습니다.'); }
+                showToast('지웠어요.');
+            } catch (e) { console.warn(e); showToast('⚠️ 지우지 못했어요.'); }
             finally { hideLoader(); }
         }
 
@@ -6211,7 +6233,7 @@
                     node = (await r.json()) || {};
                 } catch (e) {
                     console.warn('주문 새로 확인 실패:', e);
-                    alert('⚠️ 인터넷이 약해 주문을 확인하지 못했습니다.\n잠시 뒤 다시 눌러 주세요.');
+                    alert('⚠️ 인터넷이 약해 주문을 확인하지 못했어요.\n잠시 뒤 다시 눌러 주세요.');
                     return null;
                 }
                 byNode[pKey].forEach(({ k, t }) => {
@@ -6222,7 +6244,7 @@
                 });
             }
             if (canceled.length) {
-                if (!ok.length) { alert(`가게에서 취소한 상품입니다.\n\n${canceled.join('\n')}\n\n배달완료할 수 없습니다.`); return null; }
+                if (!ok.length) { alert(`가게에서 취소한 상품이에요.\n\n${canceled.join('\n')}\n\n배달 완료로 처리할 수 없어요.`); return null; }
                 if (!confirm(`가게에서 취소한 상품이 있어요.\n\n${canceled.join('\n')}\n\n이 상품은 빼고 나머지만 배달완료할까요?`)) return null;
             }
             return ok;
@@ -6236,11 +6258,11 @@
             // [신규] 이미 완료된 카드면 다시 처리하지 않고, 완료 문자만 다시 보낼지 묻는다
             //  (문자를 깜빡하고 못 보냈을 때 다시 보내려는 용도)
             if (gIsAllDelivered(orderKeys, cleanPhone)) {
-                if (!confirm("이미 완료된 건입니다.\n문자를 다시 보낼까요?")) return;
+                if (!confirm("이미 배달 완료된 주문이에요.\n문자를 다시 보낼까요?")) return;
                 gOpenDoneSms(cleanPhone, customerName);
                 return;
             }
-            if (!confirm("배달 완료 처리하시겠습니까?")) return;
+            if (!confirm("배달 완료로 처리할까요?")) return;
             showLoader("주문 확인 중...");
             const _ok = await gDeliverableKeys(orderKeys, cleanPhone);
             if (!_ok) { hideLoader(); return; }
@@ -6306,7 +6328,7 @@
                 });
                 renderFilteredData();
 
-                showToast(recOk ? "배달 완료 처리되었습니다." : "배달 완료 처리했지만 ⚠️ 배달 기록은 남기지 못했습니다.");
+                showToast(recOk ? "배달 완료로 처리했어요." : "배달 완료 처리했지만 ⚠️ 배달 기록은 남기지 못했어요.");
 
                 // 완료 메시지 발송 모달/연동 호출
                 const messageText = `[모켓] ${customerName}님, 주문하신 상품의 배달이 완료되었습니다. 감사합니다.🙇🏻‍♂️`;
@@ -6323,7 +6345,7 @@
             } catch (e) {
                 console.error(e);
                 // 저장에 실패했으면 화면도 그대로 둔다(회색 전환은 위에서 성공한 뒤에만 한다)
-                showToast("⚠️ 배달완료 처리에 실패했습니다. 다시 시도해 주세요.");
+                showToast("⚠️ 배달완료 처리에 실패했어요. 다시 시도해 주세요.");
             } finally {
                 hideLoader();
             }
@@ -6337,7 +6359,7 @@
             customerName = decAttr(customerName);
             // [신규] 이미 완료된 카드면 사진을 다시 찍을지 먼저 묻는다 (잘못 찍었을 때 바꾸려는 용도)
             if (gIsAllDelivered(orderKeysStr.split("|@@|"), normalizePhoneNumber(phone))) {
-                if (!confirm("이미 완료된 건입니다.\n사진을 다시 찍을까요?")) return;
+                if (!confirm("이미 배달 완료된 주문이에요.\n사진을 다시 찍을까요?")) return;
             }
             activeUploadPhone = phone;
             activeUploadKeys = orderKeysStr.split("|@@|");
@@ -6437,7 +6459,7 @@
                 });
             } catch (e) {
                 console.warn('앱 안 카메라를 열지 못함:', e);
-                showToast('카메라를 열지 못해 원래 카메라로 찍습니다.');
+                showToast('앱 카메라를 열 수 없어서 기본 카메라로 찍을게요.');
                 useNativeCamera();
                 return;
             }
@@ -6514,7 +6536,7 @@
                     try {
                         camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, ...CAM_SIZE }, audio: false });
                         track = camStream.getVideoTracks()[0];
-                    } catch (e) { closeInAppCamera(false); showToast('카메라를 다시 열지 못했습니다.'); return; }
+                    } catch (e) { closeInAppCamera(false); showToast('카메라를 다시 열지 못했어요.'); return; }
                 }
                 await gCamWidest(camStream);
                 const v = document.getElementById('cam-video');
@@ -6537,7 +6559,7 @@
         }
         async function shootInAppCamera() {
             const v = document.getElementById('cam-video');
-            if (!camStream || !v.videoWidth) { showToast('카메라가 아직 준비되지 않았습니다.'); return; }
+            if (!camStream || !v.videoWidth) { showToast('카메라가 아직 준비되지 않았어요.'); return; }
             let w = v.videoWidth, h = v.videoHeight;
             const max_width = 600;   // resizeAndCompressImage 와 같은 크기
             if (w > max_width) { h = Math.round((h * max_width) / w); w = max_width; }
@@ -6594,7 +6616,7 @@
         function gPendingPhotoFor(phone) { return pendingPhotoMem[normalizePhoneNumber(phone)] || null; }
         function retryPendingPhoto(phone) {
             const pend = gPendingPhotoFor(phone);
-            if (!pend) { showToast('다시 올릴 사진이 없습니다.'); return; }
+            if (!pend) { showToast('다시 올릴 사진이 없어요.'); return; }
             if (confirm('찍어 둔 사진으로 다시 올릴까요?\n\n(취소 = 새로 찍기)')) {
                 gUploadDeliveryPhoto(pend.phone, pend.keys || [], pend.name || '', pend.photo);
                 return;
@@ -6619,7 +6641,7 @@
                 compressedBase64 = await resizeAndCompressImage(file);
             } catch (e) {
                 console.error(e);
-                showToast("⚠️ 사진을 읽지 못했습니다. 다시 찍어 주세요.");
+                showToast("⚠️ 사진을 읽지 못했어요. 다시 찍어 주세요.");
                 return;
             } finally {
                 hideLoader();
@@ -6641,7 +6663,7 @@
             showLoader("주문 확인 중...");
             // [신규 2026-10-28] 가게에서 취소한 줄은 빼고 올린다. 확인을 못 하면 멈춘다 — 찍은 사진은 보관함에 남아 다시 올릴 수 있다
             const _ok = await gDeliverableKeys(activeUploadKeys || [], normalizePhoneNumber(activeUploadPhone));
-            if (!_ok) { hideLoader(); try { renderFilteredData(); } catch (e) { } showToast("찍은 사진은 남아 있습니다. 카드의 '🔁 사진 다시 올리기'를 누르세요."); return; }
+            if (!_ok) { hideLoader(); try { renderFilteredData(); } catch (e) { } showToast("찍은 사진은 남아 있어요. 카드의 '🔁 사진 다시 올리기'를 누르세요."); return; }
             activeUploadKeys = _ok;
             showLoader("사진 업로드 중...");
             try {
@@ -6709,8 +6731,8 @@
                 });
                 renderFilteredData();
 
-                showToast(recOk ? "배달 사진이 업로드되었으며, 배달 완료 처리되었습니다."
-                                : "사진을 올렸지만 ⚠️ 배달 기록은 남기지 못했습니다.");
+                showToast(recOk ? "사진을 올리고 배달 완료로 처리했어요."
+                                : "사진을 올렸지만 ⚠️ 배달 기록은 남기지 못했어요.");
 
                 // 완료 메시지 발송 모달/연동 호출
                 const customerName = activeUploadCustomerName || "고객";
@@ -6729,10 +6751,10 @@
                 console.error(e);
                 hideLoader();
                 renderFilteredData();   // 카드에 '🔁 사진 다시 올리기'가 뜬다
-                if (confirm("⚠️ 사진을 올리지 못했습니다. (인터넷 확인)\n찍은 사진은 남아 있습니다.\n\n지금 다시 올릴까요?")) {
+                if (confirm("⚠️ 사진을 올리지 못했어요. (인터넷 확인)\n찍은 사진은 남아 있어요.\n\n지금 다시 올릴까요?")) {
                     return gUploadDeliveryPhoto(activeUploadPhone, activeUploadKeys, activeUploadCustomerName, compressedBase64);
                 }
-                showToast("찍은 사진은 남아 있습니다. 카드의 '🔁 사진 다시 올리기'를 누르세요.");
+                showToast("찍은 사진은 남아 있어요. 카드의 '🔁 사진 다시 올리기'를 누르세요.");
                 return;
             } finally {
                 hideLoader();
@@ -6776,7 +6798,7 @@
             if (photoData) {
                 viewDeliveryPhoto(photoKey, photoData);
             } else {
-                showToast("사진 데이터를 찾을 수 없습니다.");
+                showToast("사진을 찾을 수 없어요.");
             }
         }
 
@@ -6823,7 +6845,7 @@
         }
 
         // 유틸 UI 효과
-        function showLoader(text = "처리 중입니다...") {
+        function showLoader(text = "처리 중이에요...") {
             document.getElementById('loader-text').innerText = text;
             document.getElementById('loader').style.display = 'flex';
         }
@@ -7486,7 +7508,7 @@
                 <span onclick="closeAptOrder()" style="flex:0 0 auto; font-size:24px; font-weight:800; color:#94a3b8; cursor:pointer; line-height:1;">&times;</span>
             </div>
             <div style="padding:10px 15px 0; font-size:12px; font-weight:700; color:#94a3b8; line-height:1.5;">
-                ≡ 를 끌어서 옮기면 위에 있는 아파트가 앞에 나옵니다.<br>지금까지 배달 간 아파트를 모두 보여 줍니다.
+                ≡ 를 끌어서 옮기면 위에 있는 아파트가 앞에 나와요.<br>지금까지 배달한 아파트를 모두 보여 줘요.
             </div>
             <div id="apt-order-body" style="overflow-y:auto; padding:6px 15px 10px; -webkit-overflow-scrolling:touch;"></div>
             <div style="padding:11px 15px 14px; border-top:1px solid #f1f5f9;">
