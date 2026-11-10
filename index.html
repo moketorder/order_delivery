@@ -6076,12 +6076,39 @@
             const s = String(q || '').trim();
             if (!s) { box.innerHTML = ''; return; }
             if (!manualCustomers) { box.innerHTML = '<div class="none">손님 명부 받는 중...</div>'; return; }
-            const digits = s.replace(/\D/g, '');
-            const word = s.replace(/\s+/g, '');
-            const hits = manualCustomers.filter(c =>
-                (digits.length >= 3 && c.phone.includes(digits))
-                || (!digits && String(c.name || '').replace(/\s+/g, '').includes(word))
-            ).slice(0, 8);
+            /* [수정 2026-11-10] 주소로도 찾는다 (사장님 요청 — 주소로 찾기가 너무 힘들었다).
+               '더샵 1004 101' · '푸지2차 1203' · '1004동 101호' · '1004-101' · '김 1203' 처럼 쳐도 된다.
+               띄어쓰기·'동'·'호'·'-'로 나눈 조각이 모두 맞는 손님만 남긴다.
+                 · 숫자 조각 → 동 번호, 호수(1203), 전화번호 일부 중 하나와 맞으면 된다
+                 · 글자 조각 → 이름, 아파트 이름, 주소 중 하나에 들어 있으면 된다 */
+            const toks = s.replace(/(\d)\s*(동|호)/g, '$1 ').replace(/[-\/,.]/g, ' ').split(/\s+/).filter(Boolean);
+            const scoreOf = c => {
+                if (!c._idx) {
+                    const addr = String(c.roadAddress || c.address || '');
+                    const apt = extractApartmentName(addr) || '';
+                    const zone = findCustomZoneName(c.address || '') || '';
+                    const dong = getDongNumber(c.addressDetail, c.address);
+                    c._idx = {
+                        text: [c.name, apt === '기타' ? '' : apt, zone, c.address, c.roadAddress, c.addressDetail].join(' ').replace(/\s+/g, ''),
+                        dong: (dong && dong !== 9999) ? String(dong) : '',
+                        ho: String(gHoRawOf(c.addressDetail || '') || '')
+                    };
+                }
+                const ix = c._idx;
+                let score = 0;
+                for (const t of toks) {
+                    if (/^\d+$/.test(t)) {
+                        if (ix.dong && ix.dong === t) score += 3;
+                        else if (ix.ho && ix.ho === t) score += 3;
+                        else if (t.length >= 3 && c.phone.includes(t)) score += 1;
+                        else return 0;
+                    } else if (ix.text.includes(t)) score += 2;
+                    else return 0;
+                }
+                return score;
+            };
+            const hits = manualCustomers.map(c => ({ c, sc: scoreOf(c) })).filter(x => x.sc > 0)
+                .sort((a, b) => b.sc - a.sc).slice(0, 15).map(x => x.c);
             if (!hits.length) { box.innerHTML = '<div class="none">찾는 손님이 없어요</div>'; return; }
             box.innerHTML = hits.map(c => {
                 const apt = extractApartmentName(c.roadAddress || c.address);
@@ -7443,7 +7470,7 @@
             <form class="man-form" style="flex:1; min-height:0; overflow-y:auto; padding:14px 15px 16px;" onsubmit="event.preventDefault();">
                 <!-- [신규] 손님 찾기 — 이름이나 번호 몇 자리로 찾아 누르면 아래 칸이 다 채워진다 -->
                 <div class="man-find">
-                    <input type="search" id="man-find" placeholder="손님 찾기 (이름·번호)" autocomplete="off" oninput="manualFind(this.value)">
+                    <input type="search" id="man-find" placeholder="손님 찾기 (이름·번호·주소) 예) 더샵 1004 101" autocomplete="off" oninput="manualFind(this.value)">
                     <div id="man-find-list" class="man-find-list"></div>
                 </div>
                 <div class="man-two">
