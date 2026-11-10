@@ -6094,7 +6094,9 @@
                     c._idx = {
                         text: [c.name, apt === '기타' ? '' : apt, words, zone, c.address, c.roadAddress, c.addressDetail].join(' ').replace(/\s+/g, ''),
                         dong: (dong && dong !== 9999) ? String(dong) : '',
-                        ho: String(gHoRawOf(c.addressDetail || '') || '')
+                        ho: String(gHoRawOf(c.addressDetail || '') || ''),
+                        // [수정] 주소 속 번호(건물 번호·번길 번호) — '다산중앙로82번길 106'의 106이 안 맞아 안 나왔다 (사장님 지적)
+                        nums: new Set(String([c.address, c.roadAddress].join(' ')).match(/\d+/g) || [])
                     };
                 }
                 const ix = c._idx;
@@ -6103,6 +6105,7 @@
                     if (/^\d+$/.test(t)) {
                         if (ix.dong && ix.dong === t) score += 3;
                         else if (ix.ho && ix.ho === t) score += 3;
+                        else if (ix.nums.has(t)) score += 2;
                         else if (t.length >= 3 && c.phone.includes(t)) score += 1;
                         else return 0;
                     } else if (ix.text.includes(t)) score += 2;
