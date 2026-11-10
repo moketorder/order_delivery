@@ -6088,8 +6088,11 @@
                     const apt = extractApartmentName(addr) || '';
                     const zone = findCustomZoneName(c.address || '') || '';
                     const dong = getDongNumber(c.addressDetail, c.address);
+                    // [수정] 아파트의 다른 이름도 넣는다 (사장님 지적 — '푸르지오2차'로 치면 '푸지2차'가 안 떴다)
+                    const hit = APT_TABLE.find(a => a && a.name === apt);
+                    const words = hit ? (hit.words || []).join(' ') : '';
                     c._idx = {
-                        text: [c.name, apt === '기타' ? '' : apt, zone, c.address, c.roadAddress, c.addressDetail].join(' ').replace(/\s+/g, ''),
+                        text: [c.name, apt === '기타' ? '' : apt, words, zone, c.address, c.roadAddress, c.addressDetail].join(' ').replace(/\s+/g, ''),
                         dong: (dong && dong !== 9999) ? String(dong) : '',
                         ho: String(gHoRawOf(c.addressDetail || '') || '')
                     };
@@ -6103,6 +6106,8 @@
                         else if (t.length >= 3 && c.phone.includes(t)) score += 1;
                         else return 0;
                     } else if (ix.text.includes(t)) score += 2;
+                    // '푸르지오2차'처럼 글자·숫자가 섞이면 '푸르지오'·'2차'로 나눠 둘 다 들어 있으면 된다 (순서가 달라도)
+                    else if ((t.match(/\d+[가-힣]*|[^\d]+/g) || []).every(p => ix.text.includes(p))) score += 2;
                     else return 0;
                 }
                 return score;
